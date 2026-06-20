@@ -130,6 +130,7 @@ class PollServiceContainerStatsJob implements ShouldQueue
                     'mem_percent' => (float) str_replace('%', '', data_get($stats, 'MemPerc', '0')),
                     'net_io' => data_get($stats, 'NetIO', '—'),
                     'pids' => (int) data_get($stats, 'PIDs', 0),
+                    '_stats_found' => $stats !== [],
                 ];
             })->sortBy(['service', 'replica'])->values()->toArray();
 

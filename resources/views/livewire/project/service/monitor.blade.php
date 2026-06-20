@@ -120,9 +120,9 @@
                                                 <div class="flex items-center gap-2 min-w-[5rem]">
                                                     <div class="flex-1 h-1.5 rounded-full dark:bg-coolgray-300 overflow-hidden">
                                                         <div class="h-full rounded-full transition-all {{ $c['cpu'] > 80 ? 'bg-error' : ($c['cpu'] > 50 ? 'bg-warning' : 'bg-success') }}"
-                                                            style="width: {{ min(100, $c['cpu']) }}%"></div>
+                                                            style="width: {{ max($c['cpu'] > 0 ? 2 : 0, min(100, $c['cpu'])) }}%"></div>
                                                     </div>
-                                                    <span class="text-xs tabular-nums w-10 text-right">{{ number_format($c['cpu'], 1) }}%</span>
+                                                    <span class="text-xs tabular-nums w-12 text-right">{{ number_format($c['cpu'], 2) }}%</span>
                                                 </div>
                                             @else
                                                 <span class="dark:text-neutral-600">—</span>
@@ -132,20 +132,31 @@
                                         {{-- MEM bar --}}
                                         <td class="py-2.5 pr-4">
                                             @if ($c['state'] === 'running')
-                                                <div class="flex items-center gap-2 min-w-[8rem]">
+                                                <div class="flex items-center gap-2 min-w-[10rem]">
                                                     <div class="flex-1 h-1.5 rounded-full dark:bg-coolgray-300 overflow-hidden">
                                                         <div class="h-full rounded-full transition-all {{ $c['mem_percent'] > 80 ? 'bg-error' : ($c['mem_percent'] > 50 ? 'bg-warning' : 'bg-success') }}"
-                                                            style="width: {{ min(100, $c['mem_percent']) }}%"></div>
+                                                            style="width: {{ max($c['mem_percent'] > 0 ? 2 : 0, min(100, $c['mem_percent'])) }}%"></div>
                                                     </div>
-                                                    <span class="text-xs tabular-nums dark:text-neutral-400 whitespace-nowrap">{{ $c['mem_usage'] }}</span>
+                                                    <span class="text-xs tabular-nums dark:text-neutral-400 whitespace-nowrap">
+                                                        {{ $c['mem_usage'] !== '—' ? $c['mem_usage'] : ($c['_stats_found'] ? '0B' : 'no data') }}
+                                                        <span class="dark:text-neutral-600">({{ number_format($c['mem_percent'], 2) }}%)</span>
+                                                    </span>
                                                 </div>
                                             @else
                                                 <span class="dark:text-neutral-600">—</span>
                                             @endif
                                         </td>
 
-                                        <td class="py-2.5 pr-4 text-xs dark:text-neutral-400 tabular-nums whitespace-nowrap">{{ $c['net_io'] }}</td>
-                                        <td class="py-2.5 text-xs tabular-nums dark:text-neutral-400">{{ $c['pids'] ?: '—' }}</td>
+                                        <td class="py-2.5 pr-4 text-xs dark:text-neutral-400 tabular-nums whitespace-nowrap">
+                                            {{ $c['net_io'] !== '—' ? $c['net_io'] : ($c['_stats_found'] ? '0B / 0B' : 'no data') }}
+                                        </td>
+                                        <td class="py-2.5 text-xs tabular-nums dark:text-neutral-400">
+                                            @if ($c['_stats_found'])
+                                                {{ $c['pids'] ?: 0 }}
+                                            @else
+                                                <span class="dark:text-neutral-600">no data</span>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
