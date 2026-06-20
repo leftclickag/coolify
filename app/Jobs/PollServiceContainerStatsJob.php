@@ -59,7 +59,7 @@ class PollServiceContainerStatsJob implements ShouldQueue
             // 1. List all containers for this compose project
             $psRaw = instant_remote_process([
                 "docker ps -a --filter label=com.docker.compose.project={$uuid} --format '{{json .}}' 2>/dev/null || true",
-            ], $server, throwError: false, disableMultiplexing: true);
+            ], $server, false);
 
             $containers = collect(explode("\n", trim((string) $psRaw)))
                 ->filter()
@@ -81,7 +81,7 @@ class PollServiceContainerStatsJob implements ShouldQueue
             if ($runningIds->isNotEmpty()) {
                 $statsRaw = instant_remote_process([
                     'docker stats --no-stream --format \'{{json .}}\' '.$runningIds->implode(' ').' 2>/dev/null || true',
-                ], $server, throwError: false, disableMultiplexing: true);
+                ], $server, false);
 
                 collect(explode("\n", trim((string) $statsRaw)))
                     ->filter()
@@ -133,7 +133,7 @@ class PollServiceContainerStatsJob implements ShouldQueue
             $traefikData = [];
             $traefikRaw = instant_remote_process([
                 "docker exec coolify-proxy wget -qO- 'http://localhost:8080/api/http/services' 2>/dev/null || echo '__traefik_unavailable__'",
-            ], $server, throwError: false, disableMultiplexing: true);
+            ], $server, false);
 
             if (! str_contains((string) $traefikRaw, '__traefik_unavailable__')) {
                 $parsed = json_decode(trim((string) $traefikRaw), true);

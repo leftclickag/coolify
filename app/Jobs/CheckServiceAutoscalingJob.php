@@ -70,7 +70,7 @@ class CheckServiceAutoscalingJob implements ShouldQueue
             // Find all containers belonging to this compose service using Docker labels
             $containerIds = instant_remote_process([
                 "docker ps --filter label=com.docker.compose.service={$serviceName} --filter label=com.docker.compose.project={$uuid} -q 2>/dev/null || true",
-            ], $server, throwError: false, disableMultiplexing: true);
+            ], $server, false);
 
             $containerIds = collect(explode("\n", trim((string) $containerIds)))->filter()->values();
 
@@ -81,7 +81,7 @@ class CheckServiceAutoscalingJob implements ShouldQueue
             // Pull per-container CPU & memory stats (single snapshot, non-streaming)
             $statsRaw = instant_remote_process([
                 'docker stats --no-stream --format \'{{json .}}\' '.$containerIds->implode(' ').' 2>/dev/null || true',
-            ], $server, throwError: false, disableMultiplexing: true);
+            ], $server, false);
 
             $stats = collect(explode("\n", trim((string) $statsRaw)))
                 ->filter()

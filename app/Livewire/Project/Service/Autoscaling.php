@@ -151,7 +151,7 @@ class Autoscaling extends Component
 
             $output = instant_remote_process([
                 "docker ps --filter label=com.docker.compose.service={$name} --filter label=com.docker.compose.project={$uuid} --filter status=running -q | wc -l",
-            ], $server, throwError: false, disableMultiplexing: true);
+            ], $server, false);
 
             $this->runningReplicas = (int) trim((string) $output);
         } catch (\Throwable $e) {
