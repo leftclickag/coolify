@@ -94,16 +94,7 @@ class SshMultiplexingHelper
 
     public static function removeMuxFile(Server $server): void
     {
-        // Politely ask the master to exit. On a healthy connection this also
-        // removes the socket file. On a stale socket (e.g. after Coolify
-        // container restart) the command fails silently and the socket file
-        // is left behind, blocking future ControlMaster=auto establishment.
         Process::run(self::muxControlCommand($server, 'exit'));
-        // Force-remove the socket file in case the polite exit did not clean it up.
-        $muxSocket = self::muxSocket($server);
-        if ($muxSocket !== '' && $muxSocket !== '/') {
-            Process::run("rm -f {$muxSocket}");
-        }
         self::clearConnectionMetadata($server);
     }
 
