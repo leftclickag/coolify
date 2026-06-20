@@ -2668,11 +2668,30 @@ function serviceParser(Service $resource): Collection
             return $volume;
         });
 
-        $payload = collect($service)->merge([
-            'container_name' => $containerName,
+        // When a service application has replicas > 1, we must not set a static
+        // container_name (Docker Compose disallows duplicate names). Instead we inject
+        // deploy.replicas so Compose auto-numbers the containers.
+        $appReplicas = ($savedService instanceof \App\Models\ServiceApplication)
+            ? max(1, (int) ($savedService->replicas ?? 1))
+            : 1;
+
+        $payloadBase = [
             'restart' => $restart->value(),
             'labels' => $serviceLabels,
-        ]);
+        ];
+
+        if ($appReplicas <= 1) {
+            $payloadBase['container_name'] = $containerName;
+        }
+
+        $payload = collect($service)->merge($payloadBase);
+
+        if ($appReplicas > 1) {
+            $existingDeploy = is_array($payload->get('deploy')) ? $payload->get('deploy') : [];
+            $payload['deploy'] = array_merge($existingDeploy, ['replicas' => $appReplicas]);
+            $payload->forget('container_name');
+        }
+
         if (! $use_network_mode) {
             $payload['networks'] = $networks_temp;
         }

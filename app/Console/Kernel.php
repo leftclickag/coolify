@@ -5,6 +5,7 @@ namespace App\Console;
 use App\Jobs\ApiTokenExpirationWarningJob;
 use App\Jobs\CheckForUpdatesJob;
 use App\Jobs\CheckHelperImageJob;
+use App\Jobs\CheckServiceAutoscalingJob;
 use App\Jobs\CheckTraefikVersionJob;
 use App\Jobs\CleanupInstanceStuffsJob;
 use App\Jobs\CleanupOrphanedPreviewContainersJob;
@@ -61,6 +62,9 @@ class Kernel extends ConsoleKernel
             // Scheduled Jobs (Backups & Tasks)
             $this->scheduleInstance->job(new ScheduledJobManager)->everyMinute()->onOneServer();
 
+            // Autoscaling
+            $this->scheduleInstance->job(new CheckServiceAutoscalingJob)->everyMinute()->onOneServer();
+
             $this->scheduleInstance->command('uploads:clear')->everyTwoMinutes();
 
         } else {
@@ -81,6 +85,9 @@ class Kernel extends ConsoleKernel
 
             // Scheduled Jobs (Backups & Tasks)
             $this->scheduleInstance->job(new ScheduledJobManager)->everyMinute()->onOneServer();
+
+            // Autoscaling
+            $this->scheduleInstance->job(new CheckServiceAutoscalingJob)->everyMinute()->onOneServer();
 
             $this->scheduleInstance->job(new RegenerateSslCertJob)->twiceDaily()->onOneServer();
 

@@ -29,7 +29,23 @@ class ServiceApplication extends BaseModel
         'is_stripprefix_enabled',
         'last_online_at',
         'is_migrated',
+        'replicas',
+        'autoscale_enabled',
+        'autoscale_min_replicas',
+        'autoscale_max_replicas',
+        'autoscale_cpu_threshold',
+        'autoscale_memory_threshold',
+        'autoscale_cooldown_seconds',
+        'autoscale_last_scaled_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'autoscale_enabled' => 'boolean',
+            'autoscale_last_scaled_at' => 'datetime',
+        ];
+    }
 
     protected static function booted()
     {

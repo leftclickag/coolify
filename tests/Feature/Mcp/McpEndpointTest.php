@@ -95,6 +95,15 @@ test('MCP endpoint lists tools for an authenticated token', function () {
         'get_database',
         'list_services',
         'get_service',
+        // write tools
+        'control',
+        'deploy',
+        'list_envs',
+        'set_env',
+        'delete_env',
+        'create_project',
+        'delete_project',
+        'list_templates',
     );
     expect($toolNames)->not->toContain('get_resource_status');
 });

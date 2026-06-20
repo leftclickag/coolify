@@ -18,6 +18,10 @@
                     href="{{ route('project.service.index', $parameters) }}"><span class="menu-item-label">General</span></a>
                 <a class="sub-menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
                     href="{{ route('project.service.index.advanced', $parameters) }}"><span class="menu-item-label">Advanced</span></a>
+                @if ($resourceType === 'application')
+                    <a class="sub-menu-item" wire:current.exact="menu-item-active" {{ wireNavigate() }}
+                        href="{{ route('project.service.index.autoscaling', $parameters) }}"><span class="menu-item-label">Autoscaling</span></a>
+                @endif
             </div>
         @endif
         <div class="w-full">
@@ -26,7 +30,10 @@
                     {{ data_get_str($service, 'name')->limit(10) }} >
                     {{ data_get_str($serviceApplication, 'name')->limit(10) }} | Coolify
                 </x-slot>
-                @if ($currentRoute === 'project.service.index.advanced')
+                @if ($currentRoute === 'project.service.index.autoscaling')
+                    <livewire:project.service.autoscaling :serviceApplication="$serviceApplication"
+                        wire:key="autoscaling-{{ $serviceApplication->id }}" />
+                @elseif ($currentRoute === 'project.service.index.advanced')
                     <h2>Advanced</h2>
                     <div class="w-full sm:w-96 flex flex-col gap-1 pt-4">
                         @if (str($serviceApplication->image)->contains('pocketbase'))
