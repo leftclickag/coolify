@@ -3,7 +3,9 @@
 namespace App\Jobs;
 
 use App\Actions\Service\ScaleServiceApplication;
+use App\Models\Service;
 use App\Models\ServiceApplication;
+use App\Jobs\PollServiceContainerStatsJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -38,6 +40,18 @@ class CheckServiceAutoscalingJob implements ShouldQueue
         foreach ($applications as $application) {
             $this->checkAndScale($application);
         }
+
+        // Keep monitor cache warm for any service that has been viewed recently —
+        // identified by the presence of a (possibly stale) monitor cache entry.
+        // This means the monitor page always has data without SSH on load.
+        Service::whereHas('destination.server', function ($q): void {
+            $q->where('is_reachable', true);
+        })->pluck('id')->each(function (int $id) {
+            $service = Service::find($id);
+            if ($service && Cache::has(PollServiceContainerStatsJob::cacheKey($service->uuid))) {
+                PollServiceContainerStatsJob::dispatch($id);
+            }
+        });
     }
 
     private function checkAndScale(ServiceApplication $application): void
@@ -56,7 +70,7 @@ class CheckServiceAutoscalingJob implements ShouldQueue
             // Find all containers belonging to this compose service using Docker labels
             $containerIds = instant_remote_process([
                 "docker ps --filter label=com.docker.compose.service={$serviceName} --filter label=com.docker.compose.project={$uuid} -q 2>/dev/null || true",
-            ], $server, false);
+            ], $server, throwError: false, disableMultiplexing: true);
 
             $containerIds = collect(explode("\n", trim((string) $containerIds)))->filter()->values();
 
@@ -67,7 +81,7 @@ class CheckServiceAutoscalingJob implements ShouldQueue
             // Pull per-container CPU & memory stats (single snapshot, non-streaming)
             $statsRaw = instant_remote_process([
                 'docker stats --no-stream --format \'{{json .}}\' '.$containerIds->implode(' ').' 2>/dev/null || true',
-            ], $server, false);
+            ], $server, throwError: false, disableMultiplexing: true);
 
             $stats = collect(explode("\n", trim((string) $statsRaw)))
                 ->filter()

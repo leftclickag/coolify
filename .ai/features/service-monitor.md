@@ -54,14 +54,28 @@ If the Traefik API is unreachable (e.g. production with `--api.insecure=false` a
 
 ## Data flow
 
+**No SSH on page load.** The monitor reads from Redis cache. SSH runs only in a background job.
+
 ```
-Browser (Livewire) → loadData()
-  └─ instant_remote_process: docker ps -a --filter label=com.docker.compose.project={uuid}
-  └─ instant_remote_process: docker stats --no-stream (running containers only)
-  └─ instant_remote_process: docker exec coolify-proxy wget .../api/http/services
+[every minute]  CheckServiceAutoscalingJob
+                └─ PollServiceContainerStatsJob::dispatch(serviceId)
+                      └─ docker ps  (SSH, disableMultiplexing)
+                      └─ docker stats  (SSH, disableMultiplexing)
+                      └─ docker exec coolify-proxy wget  (SSH, disableMultiplexing)
+                      └─ Cache::put('service:container-stats:{uuid}', ..., 120s)
+
+[page load]     Monitor::mount()
+                └─ Cache::get('service:container-stats:{uuid}')  ← instant, no SSH
+
+[Refresh click] Monitor::requestRefresh()
+                └─ PollServiceContainerStatsJob::dispatch()  ← queued background job
+                └─ wire:poll.3000ms='checkForFreshData'  ← UI polls cache until data lands
 ```
 
-All three calls are sequential and synchronous (`instant_remote_process`). The page renders immediately (loading state) and the data appears once all three resolve. This typically takes 2–4 seconds.
+**Cache warm-up**: `CheckServiceAutoscalingJob` (runs every minute) also dispatches
+`PollServiceContainerStatsJob` for any service whose monitor cache key already exists
+(i.e. the Monitor tab has been opened before). So once a service is viewed, subsequent
+visits show data immediately without any SSH wait.
 
 ---
 

@@ -1,30 +1,40 @@
-<div class="flex flex-col" wire:init="loadData"
-    @if ($autoRefresh) wire:poll.10000ms="loadData" @endif>
+<div class="flex flex-col"
+    @if ($autoRefresh || $pollPending) wire:poll.3000ms="checkForFreshData" @endif>
 
     {{-- Header --}}
     <div class="flex items-center gap-3 pb-4">
         <h2>Monitor</h2>
-        <x-loading wire:loading wire:target="loadData" />
-        @if ($lastUpdated)
-            <span class="text-xs dark:text-neutral-500">Updated {{ $lastUpdated }}</span>
+        @if ($pollPending)
+            <x-loading />
+            <span class="text-xs dark:text-neutral-500">Fetching…</span>
+        @elseif ($polledAt)
+            <span class="text-xs dark:text-neutral-500">
+                Updated {{ \Carbon\Carbon::parse($polledAt)->diffForHumans() }}
+            </span>
         @endif
         <div class="ml-auto flex items-center gap-3">
             <label class="flex items-center gap-1.5 text-xs dark:text-neutral-400 cursor-pointer select-none">
                 <input type="checkbox" wire:model.live="autoRefresh" class="checkbox checkbox-xs" />
-                Auto-refresh (10s)
+                Auto-refresh (30s)
             </label>
-            <x-forms.button wire:click="loadData" wire:loading.attr="disabled" wire:target="loadData">
+            <x-forms.button wire:click="requestRefresh" wire:loading.attr="disabled" wire:target="requestRefresh">
                 Refresh
             </x-forms.button>
         </div>
     </div>
 
-    @if ($error)
-        <x-callout type="danger" title="Error">{{ $error }}</x-callout>
-    @endif
-
-    @if (! $loaded)
-        <div class="py-12 text-center dark:text-neutral-500 text-sm">Loading container data…</div>
+    {{-- No data yet --}}
+    @if (! $polledAt && ! $pollPending)
+        <div class="py-12 text-center">
+            <p class="text-sm dark:text-neutral-500 pb-4">
+                No data yet. Click Refresh to fetch live container stats from the server.
+            </p>
+            <x-forms.button wire:click="requestRefresh">Fetch Now</x-forms.button>
+        </div>
+    @elseif ($pollPending && empty($containers))
+        <div class="py-12 text-center text-sm dark:text-neutral-500">
+            Fetching container data in the background…
+        </div>
     @else
 
         {{-- Summary cards --}}
@@ -53,31 +63,26 @@
 
         @if (empty($containers))
             <x-callout type="info" title="No containers found">
-                No containers are running or were recently run for this service.
-                Deploy the service first.
+                No containers are running or were recently run for this service stack.
             </x-callout>
         @else
-
-            {{-- Container table --}}
-            @php
-                $byService = collect($containers)->groupBy('service');
-            @endphp
+            @php $byService = collect($containers)->groupBy('service'); @endphp
 
             @foreach ($byService as $serviceName => $replicas)
                 <div class="mb-6">
                     <div class="flex items-center gap-2 pb-2">
                         <h3 class="text-base">{{ $serviceName }}</h3>
-                        <span class="text-xs dark:text-neutral-500">{{ $replicas->count() }} {{ Str::plural('replica', $replicas->count()) }}</span>
-                        @if (count($traefikServices) > 0)
-                            @foreach ($traefikServices as $tSvc)
-                                @if (str_contains($tSvc['name'], $serviceName))
-                                    <span class="text-xs px-1.5 py-0.5 rounded
-                                        {{ $tSvc['servers_up'] === $tSvc['servers_total'] ? 'dark:bg-success/20 text-success' : 'dark:bg-warning/20 text-warning' }}">
-                                        Traefik: {{ $tSvc['servers_up'] }}/{{ $tSvc['servers_total'] }} up
-                                    </span>
-                                @endif
-                            @endforeach
-                        @endif
+                        <span class="text-xs dark:text-neutral-500">
+                            {{ $replicas->count() }} {{ Str::plural('replica', $replicas->count()) }}
+                        </span>
+                        @foreach ($traefikServices as $ts)
+                            @if (str_contains($ts['name'], $serviceName))
+                                <span class="text-xs px-1.5 py-0.5 rounded
+                                    {{ $ts['servers_up'] === $ts['servers_total'] ? 'dark:bg-success/20 text-success' : 'dark:bg-warning/20 text-warning' }}">
+                                    Traefik {{ $ts['servers_up'] }}/{{ $ts['servers_total'] }} up
+                                </span>
+                            @endif
+                        @endforeach
                     </div>
 
                     <div class="w-full overflow-x-auto">
@@ -96,41 +101,29 @@
                             <tbody>
                                 @foreach ($replicas as $c)
                                     <tr class="border-b dark:border-coolgray-300/50 hover:dark:bg-coolgray-100/30 transition-colors">
-                                        {{-- Replica # --}}
-                                        <td class="py-2.5 pr-4 tabular-nums dark:text-neutral-400">
-                                            {{ $c['replica'] }}
-                                        </td>
+                                        <td class="py-2.5 pr-4 tabular-nums dark:text-neutral-400">{{ $c['replica'] }}</td>
+                                        <td class="py-2.5 pr-4 font-mono text-xs dark:text-neutral-300 whitespace-nowrap">{{ $c['name'] }}</td>
 
-                                        {{-- Name --}}
-                                        <td class="py-2.5 pr-4 font-mono text-xs dark:text-neutral-300 whitespace-nowrap">
-                                            {{ $c['name'] }}
-                                        </td>
-
-                                        {{-- Status badge --}}
+                                        {{-- Status --}}
                                         <td class="py-2.5 pr-4 whitespace-nowrap">
-                                            @php
-                                                $stateColor = match ($c['state']) {
-                                                    'running' => 'text-success',
-                                                    'created', 'restarting' => 'text-warning',
-                                                    default => 'text-error',
-                                                };
-                                            @endphp
                                             <div class="flex items-center gap-1.5">
-                                                <span class="inline-block w-1.5 h-1.5 rounded-full {{ $c['state'] === 'running' ? 'bg-success' : ($c['state'] === 'created' || $c['state'] === 'restarting' ? 'bg-warning' : 'bg-error') }}"></span>
-                                                <span class="{{ $stateColor }}">{{ ucfirst($c['state']) }}</span>
+                                                <span class="inline-block w-1.5 h-1.5 rounded-full
+                                                    {{ $c['state'] === 'running' ? 'bg-success' : ($c['state'] === 'restarting' || $c['state'] === 'created' ? 'bg-warning' : 'bg-error') }}"></span>
+                                                <span class="{{ $c['state'] === 'running' ? 'text-success' : ($c['state'] === 'restarting' || $c['state'] === 'created' ? 'text-warning' : 'text-error') }}">
+                                                    {{ ucfirst($c['state']) }}
+                                                </span>
                                                 @if ($c['health'])
                                                     <span class="text-xs dark:text-neutral-500">({{ $c['health'] }})</span>
                                                 @endif
                                             </div>
                                         </td>
 
-                                        {{-- CPU --}}
-                                        <td class="py-2.5 pr-4 tabular-nums">
+                                        {{-- CPU bar --}}
+                                        <td class="py-2.5 pr-4">
                                             @if ($c['state'] === 'running')
                                                 <div class="flex items-center gap-2 min-w-[5rem]">
                                                     <div class="flex-1 h-1.5 rounded-full dark:bg-coolgray-300 overflow-hidden">
-                                                        <div class="h-full rounded-full transition-all
-                                                            {{ $c['cpu'] > 80 ? 'bg-error' : ($c['cpu'] > 50 ? 'bg-warning' : 'bg-success') }}"
+                                                        <div class="h-full rounded-full transition-all {{ $c['cpu'] > 80 ? 'bg-error' : ($c['cpu'] > 50 ? 'bg-warning' : 'bg-success') }}"
                                                             style="width: {{ min(100, $c['cpu']) }}%"></div>
                                                     </div>
                                                     <span class="text-xs tabular-nums w-10 text-right">{{ number_format($c['cpu'], 1) }}%</span>
@@ -140,13 +133,12 @@
                                             @endif
                                         </td>
 
-                                        {{-- Memory --}}
+                                        {{-- MEM bar --}}
                                         <td class="py-2.5 pr-4">
                                             @if ($c['state'] === 'running')
                                                 <div class="flex items-center gap-2 min-w-[8rem]">
                                                     <div class="flex-1 h-1.5 rounded-full dark:bg-coolgray-300 overflow-hidden">
-                                                        <div class="h-full rounded-full transition-all
-                                                            {{ $c['mem_percent'] > 80 ? 'bg-error' : ($c['mem_percent'] > 50 ? 'bg-warning' : 'bg-success') }}"
+                                                        <div class="h-full rounded-full transition-all {{ $c['mem_percent'] > 80 ? 'bg-error' : ($c['mem_percent'] > 50 ? 'bg-warning' : 'bg-success') }}"
                                                             style="width: {{ min(100, $c['mem_percent']) }}%"></div>
                                                     </div>
                                                     <span class="text-xs tabular-nums dark:text-neutral-400 whitespace-nowrap">{{ $c['mem_usage'] }}</span>
@@ -156,15 +148,8 @@
                                             @endif
                                         </td>
 
-                                        {{-- Net I/O --}}
-                                        <td class="py-2.5 pr-4 text-xs dark:text-neutral-400 whitespace-nowrap tabular-nums">
-                                            {{ $c['net_io'] !== '—' ? $c['net_io'] : '—' }}
-                                        </td>
-
-                                        {{-- PIDs --}}
-                                        <td class="py-2.5 text-xs tabular-nums dark:text-neutral-400">
-                                            {{ $c['pids'] ?: '—' }}
-                                        </td>
+                                        <td class="py-2.5 pr-4 text-xs dark:text-neutral-400 tabular-nums whitespace-nowrap">{{ $c['net_io'] }}</td>
+                                        <td class="py-2.5 text-xs tabular-nums dark:text-neutral-400">{{ $c['pids'] ?: '—' }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -173,46 +158,32 @@
                 </div>
             @endforeach
 
-            {{-- Traefik routing info --}}
+            {{-- Traefik --}}
             @if (! empty($traefikServices))
                 <div class="pt-2">
                     <h3 class="text-base pb-2">Traefik Routing</h3>
-                    <div class="w-full overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="border-b dark:border-coolgray-300 text-left">
-                                    <th class="pb-2 pr-4 font-medium dark:text-neutral-400">Service</th>
-                                    <th class="pb-2 pr-4 font-medium dark:text-neutral-400">Status</th>
-                                    <th class="pb-2 font-medium dark:text-neutral-400">Backends up / total</th>
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b dark:border-coolgray-300 text-left">
+                                <th class="pb-2 pr-4 font-medium dark:text-neutral-400">Service</th>
+                                <th class="pb-2 pr-4 font-medium dark:text-neutral-400">Status</th>
+                                <th class="pb-2 font-medium dark:text-neutral-400">Backends</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($traefikServices as $ts)
+                                <tr class="border-b dark:border-coolgray-300/50">
+                                    <td class="py-2.5 pr-4 font-mono text-xs dark:text-neutral-300">{{ $ts['name'] }}</td>
+                                    <td class="py-2.5 pr-4 {{ $ts['status'] === 'enabled' ? 'text-success' : 'text-error' }}">{{ ucfirst($ts['status']) }}</td>
+                                    <td class="py-2.5 tabular-nums {{ $ts['servers_up'] < $ts['servers_total'] ? 'text-warning' : 'text-success' }}">
+                                        {{ $ts['servers_up'] }} / {{ $ts['servers_total'] }}
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($traefikServices as $ts)
-                                    <tr class="border-b dark:border-coolgray-300/50">
-                                        <td class="py-2.5 pr-4 font-mono text-xs dark:text-neutral-300">{{ $ts['name'] }}</td>
-                                        <td class="py-2.5 pr-4">
-                                            <span class="{{ $ts['status'] === 'enabled' ? 'text-success' : 'text-error' }}">
-                                                {{ ucfirst($ts['status']) }}
-                                            </span>
-                                        </td>
-                                        <td class="py-2.5 tabular-nums">
-                                            <span class="{{ $ts['servers_up'] < $ts['servers_total'] ? 'text-warning' : 'text-success' }}">
-                                                {{ $ts['servers_up'] }} / {{ $ts['servers_total'] }}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            @elseif ($loaded && empty($traefikServices))
-                <div class="pt-2 text-xs dark:text-neutral-600">
-                    Traefik API not available or no services for this stack are registered.
-                    Traefik routes traffic to all healthy running replicas automatically.
+                            @endforeach
+                        </tbody>
+                    </table>
                 </div>
             @endif
-
         @endif
     @endif
 </div>
