@@ -19,6 +19,10 @@ class Autoscaling extends Component
 
     public bool $hasHostPorts = false;
 
+    public ?int $runningReplicas = null;
+
+    public bool $replicaStatusLoaded = false;
+
     #[Validate('required|integer|min:1|max:50')]
     public int $replicas = 1;
 
@@ -119,9 +123,39 @@ class Autoscaling extends Component
 
             $this->serviceApplication->refresh();
             $this->syncData();
+            $this->loadReplicaStatus();
             $this->dispatch('success', "Scaled to {$this->replicas} replica(s). The service is updating.");
         } catch (\Throwable $e) {
             handleError($e, $this);
+        }
+    }
+
+    /**
+     * Count the running replicas of this service application on the server using
+     * Docker Compose labels. Invoked async via wire:init so the page loads fast.
+     */
+    public function loadReplicaStatus(): void
+    {
+        $this->replicaStatusLoaded = true;
+
+        try {
+            $server = $this->service->destination->server;
+            if (! $server->isFunctional()) {
+                $this->runningReplicas = null;
+
+                return;
+            }
+
+            $name = $this->serviceApplication->name;
+            $uuid = $this->service->uuid;
+
+            $output = instant_remote_process([
+                "docker ps --filter label=com.docker.compose.service={$name} --filter label=com.docker.compose.project={$uuid} --filter status=running -q | wc -l",
+            ], $server, false);
+
+            $this->runningReplicas = (int) trim((string) $output);
+        } catch (\Throwable $e) {
+            $this->runningReplicas = null;
         }
     }
 

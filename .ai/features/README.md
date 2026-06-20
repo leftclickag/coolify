@@ -1,0 +1,8 @@
+# Leftclick Fork — Feature Documentation
+
+Documentation for features added/changed in this fork of Coolify.
+
+| Doc | Summary |
+|---|---|
+| [autoscaling.md](autoscaling.md) | Autoscaling for Docker Compose services — manual + automatic replica scaling based on CPU/memory, host-port→`expose` conversion, metric smoothing, replica-aware status, live UI monitoring |
+| [custom-build-deployment.md](custom-build-deployment.md) | Installing/updating the fork by building the image locally from source (no registry), and how the built-in auto-update is intercepted |

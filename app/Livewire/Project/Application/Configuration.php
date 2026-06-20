@@ -36,7 +36,7 @@ class Configuration extends Component
             ->where('uuid', request()->route('environment_uuid'))
             ->firstOrFail();
         $application = $environment->applications()
-            ->with(['destination'])
+            ->with(['destination', 'dockerServices'])
             ->where('uuid', request()->route('application_uuid'))
             ->firstOrFail();
 

@@ -1,17 +1,54 @@
-<div class="flex flex-col">
+<div class="flex flex-col" wire:init="loadReplicaStatus">
     <div class="flex items-center gap-2">
         <h2>Autoscaling</h2>
-        <x-loading wire:loading wire:target="submit,scaleNow" />
+        <x-loading wire:loading wire:target="submit,scaleNow,loadReplicaStatus" />
     </div>
     <div class="pb-4 text-sm dark:text-neutral-400">
         Scale this service up or down manually, or automatically based on CPU and memory usage.
     </div>
 
+    {{-- Live replica status --}}
+    <div class="flex flex-wrap gap-4 pb-6">
+        <div class="flex flex-col px-4 py-3 border rounded-sm dark:border-coolgray-300 min-w-[8rem]">
+            <span class="text-xs dark:text-neutral-500">Running replicas</span>
+            <span class="text-2xl font-bold tabular-nums">
+                @if (! $replicaStatusLoaded)
+                    <span class="text-sm dark:text-neutral-500">Loading…</span>
+                @elseif (is_null($runningReplicas))
+                    <span class="text-sm dark:text-neutral-500">Unknown</span>
+                @else
+                    {{ $runningReplicas }}<span class="text-sm dark:text-neutral-500"> / {{ $serviceApplication->replicas ?? 1 }}</span>
+                @endif
+            </span>
+        </div>
+        <div class="flex flex-col px-4 py-3 border rounded-sm dark:border-coolgray-300 min-w-[8rem]">
+            <span class="text-xs dark:text-neutral-500">Desired replicas</span>
+            <span class="text-2xl font-bold tabular-nums">{{ $serviceApplication->replicas ?? 1 }}</span>
+        </div>
+        <div class="flex flex-col px-4 py-3 border rounded-sm dark:border-coolgray-300 min-w-[8rem]">
+            <span class="text-xs dark:text-neutral-500">Autoscaling</span>
+            <span class="text-2xl font-bold">
+                @if ($serviceApplication->autoscale_enabled)
+                    <span class="text-success">On</span>
+                @else
+                    <span class="dark:text-neutral-500">Off</span>
+                @endif
+            </span>
+        </div>
+        <button type="button" wire:click="loadReplicaStatus" wire:loading.attr="disabled"
+            wire:target="loadReplicaStatus"
+            class="self-center text-xs underline dark:text-neutral-400 hover:dark:text-white">
+            Refresh
+        </button>
+    </div>
+
     @if ($hasHostPorts)
-        <x-callout type="warning" title="Host port bindings detected" class="mb-4">
-            This service maps host ports ({{ $serviceApplication->ports }}). Docker cannot bind the same host
-            port on more than one container, so scaling above 1 replica will fail. Remove the host port mappings
-            from your compose file and route traffic through the proxy (Traefik) instead.
+        <x-callout type="info" title="Host ports will be converted when scaling" class="mb-4">
+            This service maps host ports ({{ $serviceApplication->ports }}). Since multiple replicas cannot share a
+            host port, Coolify automatically converts these to internal <code>expose</code> ports when you scale
+            above 1 replica. Traffic is then routed through the proxy (Traefik) across all replicas. If this service
+            has no domain configured, it stays reachable internally by other containers only. Scaling back to 1
+            replica restores the original host port mapping.
         </x-callout>
     @endif
 

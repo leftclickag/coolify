@@ -134,11 +134,22 @@ class Logs extends Component
             } elseif (data_get($this->parameters, 'service_uuid')) {
                 $this->type = 'service';
                 $this->resource = Service::ownedByCurrentTeam()->where('uuid', $this->parameters['service_uuid'])->firstOrFail();
-                $this->resource->applications()->get()->each(function ($application) {
-                    $this->containers->push(data_get($application, 'name').'-'.data_get($this->resource, 'uuid'));
+                $serviceUuid = data_get($this->resource, 'uuid');
+                $this->resource->applications()->get()->each(function ($application) use ($serviceUuid) {
+                    $name = data_get($application, 'name');
+                    $replicas = (int) (data_get($application, 'replicas') ?? 1);
+                    if ($replicas > 1) {
+                        // Scaled services use Docker Compose auto-numbered names:
+                        // {project}-{service}-{n} where project is the service UUID.
+                        for ($i = 1; $i <= $replicas; $i++) {
+                            $this->containers->push("{$serviceUuid}-{$name}-{$i}");
+                        }
+                    } else {
+                        $this->containers->push("{$name}-{$serviceUuid}");
+                    }
                 });
-                $this->resource->databases()->get()->each(function ($database) {
-                    $this->containers->push(data_get($database, 'name').'-'.data_get($this->resource, 'uuid'));
+                $this->resource->databases()->get()->each(function ($database) use ($serviceUuid) {
+                    $this->containers->push(data_get($database, 'name').'-'.$serviceUuid);
                 });
                 if ($this->resource->server->isFunctional()) {
                     $server = $this->resource->server;

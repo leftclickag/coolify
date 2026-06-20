@@ -155,7 +155,10 @@ class GetContainersStatus
                                 ?? data_get($labels, 'com.docker.stack.namespace');
                         }
                         if ($containerName) {
-                            $this->applicationContainerStatuses->get($applicationId)->put($containerName, $containerStatus);
+                            // Merge replicas sharing the same compose service name so a
+                            // failed replica is not masked by a healthy one (and vice-versa).
+                            $bucket = $this->applicationContainerStatuses->get($applicationId);
+                            $bucket->put($containerName, (new ContainerStatusAggregator)->mergeStatusStrings($bucket->get($containerName), $containerStatus));
                         }
 
                         // Track restart counts for applications
@@ -291,7 +294,9 @@ class GetContainersStatus
 
                 $containerName = data_get($labels, 'com.docker.compose.service');
                 if ($containerName) {
-                    $this->serviceContainerStatuses->get($key)->put($containerName, $containerStatus);
+                    // Merge replicas sharing the same compose service name.
+                    $bucket = $this->serviceContainerStatuses->get($key);
+                    $bucket->put($containerName, (new ContainerStatusAggregator)->mergeStatusStrings($bucket->get($containerName), $containerStatus));
                 }
 
                 // Mark service as found

@@ -114,6 +114,25 @@ class ContainerStatusAggregator
     }
 
     /**
+     * Merge an incoming container status string into an existing one, producing a
+     * single representative status. Used when multiple replicas of the same Docker
+     * Compose service report status under the same key, so the combined health is
+     * preserved instead of the last writer winning.
+     *
+     * @param  string|null  $existing  Previously stored status (null if first replica)
+     * @param  string  $new  Newly observed replica status
+     * @param  bool  $preserveRestarting  Keep "restarting" instead of collapsing to "degraded"
+     */
+    public function mergeStatusStrings(?string $existing, string $new, bool $preserveRestarting = true): string
+    {
+        if ($existing === null || $existing === '') {
+            return $new;
+        }
+
+        return $this->aggregateFromStrings(collect([$existing, $new]), preserveRestarting: $preserveRestarting);
+    }
+
+    /**
      * Aggregate container statuses from Docker container objects.
      *
      * @param  Collection  $containers  Collection of Docker container objects with State property

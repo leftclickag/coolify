@@ -3,6 +3,7 @@
 use App\Enums\ProxyTypes;
 use App\Jobs\ServerFilesFromServerJob;
 use App\Models\Application;
+use App\Models\ApplicationDockerService;
 use App\Models\ApplicationPreview;
 use App\Models\LocalFileVolume;
 use App\Models\LocalPersistentVolume;
@@ -1501,6 +1502,54 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
     return $topLevel;
 }
 
+/**
+ * Extract the container-side port from a Docker Compose port definition.
+ *
+ * Used when converting host port bindings to `expose` entries for scaled services
+ * (multiple replicas cannot share a host port). Handles:
+ *  - "3000:80"           => "80"
+ *  - "0.0.0.0:3000:80"   => "80"
+ *  - "3000-3019:80"      => "80"
+ *  - "80"                => "80"
+ *  - "80/tcp"            => "80/tcp"
+ *  - ['target' => 80, 'protocol' => 'tcp'] => "80/tcp"
+ *
+ * @param  string|int|array<string, mixed>  $port
+ */
+function extractContainerPortForExpose(string|int|array $port): ?string
+{
+    if (is_array($port)) {
+        $target = data_get($port, 'target');
+        if ($target === null) {
+            return null;
+        }
+        $protocol = data_get($port, 'protocol');
+
+        return $protocol ? "{$target}/{$protocol}" : (string) $target;
+    }
+
+    $port = trim((string) $port);
+    if ($port === '') {
+        return null;
+    }
+
+    // Separate optional protocol suffix (e.g. "80/tcp")
+    $protocol = null;
+    if (str_contains($port, '/')) {
+        [$port, $protocol] = explode('/', $port, 2);
+    }
+
+    $segments = explode(':', $port);
+    // 1 segment: container-only port ("80"); 2: host:container; 3: ip:host:container
+    $container = end($segments);
+
+    if ($container === '' || $container === false) {
+        return null;
+    }
+
+    return $protocol ? "{$container}/{$protocol}" : $container;
+}
+
 function serviceParser(Service $resource): Collection
 {
     $uuid = data_get($resource, 'uuid');
@@ -2696,7 +2745,26 @@ function serviceParser(Service $resource): Collection
             $payload['networks'] = $networks_temp;
         }
         if ($ports->count() > 0) {
-            $payload['ports'] = $ports;
+            if ($appReplicas > 1) {
+                // Multiple replicas cannot share host ports. Convert host port bindings
+                // into `expose` entries so the proxy (Traefik) can load-balance across
+                // replicas. If the service has no FQDN it simply stays internal-only,
+                // reachable by other containers on the Docker network.
+                $exposePorts = collect(data_get($payload, 'expose', []));
+                foreach ($ports as $sport) {
+                    $containerPort = extractContainerPortForExpose($sport);
+                    if ($containerPort !== null) {
+                        $exposePorts->push($containerPort);
+                    }
+                }
+                $exposePorts = $exposePorts->unique()->values();
+                if ($exposePorts->count() > 0) {
+                    $payload['expose'] = $exposePorts;
+                }
+                $payload->forget('ports');
+            } else {
+                $payload['ports'] = $ports;
+            }
         }
         if ($volumesParsed->count() > 0) {
             $payload['volumes'] = $volumesParsed;
@@ -2775,4 +2843,66 @@ function serviceParser(Service $resource): Collection
     $resource->save();
 
     return $topLevel;
+}
+
+/**
+ * Sync ApplicationDockerService child records for a compose Application.
+ *
+ * Called after applicationParser runs. Creates or updates one row per service
+ * found in docker_compose_raw and removes rows for services no longer present.
+ * Only applies to dockercompose build-pack Applications.
+ */
+function syncApplicationDockerServices(Application $application): void
+{
+    if ($application->build_pack !== 'dockercompose') {
+        return;
+    }
+
+    $raw = $application->docker_compose_raw;
+    if (blank($raw)) {
+        return;
+    }
+
+    try {
+        $yaml = Yaml::parse($raw);
+    } catch (\Exception) {
+        return;
+    }
+
+    $composeServices = collect(data_get($yaml, 'services', []));
+    if ($composeServices->isEmpty()) {
+        return;
+    }
+
+    $seenNames = [];
+
+    foreach ($composeServices as $serviceName => $serviceConfig) {
+        $image = data_get($serviceConfig, 'image');
+        $isDatabase = isDatabaseImage($image, is_array($serviceConfig) ? $serviceConfig : []);
+        $type = $isDatabase ? 'database' : 'application';
+
+        $seenNames[] = $serviceName;
+
+        // Restore any soft-deleted record for this service so it can be updated.
+        ApplicationDockerService::withTrashed()
+            ->where('application_id', $application->id)
+            ->where('name', $serviceName)
+            ->restore();
+
+        ApplicationDockerService::updateOrCreate(
+            [
+                'application_id' => $application->id,
+                'name' => $serviceName,
+            ],
+            [
+                'type' => $type,
+                'image' => $image,
+            ]
+        );
+    }
+
+    // Remove services that are no longer in the compose file.
+    ApplicationDockerService::where('application_id', $application->id)
+        ->whereNotIn('name', $seenNames)
+        ->delete();
 }

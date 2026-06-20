@@ -250,7 +250,9 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
                         }
                         $containerName = $labels->get('com.docker.compose.service');
                         if ($containerName) {
-                            $this->applicationContainerStatuses->get($applicationId)->put($containerName, $containerStatus);
+                            // Merge replicas sharing the same compose service name.
+                            $bucket = $this->applicationContainerStatuses->get($applicationId);
+                            $bucket->put($containerName, (new ContainerStatusAggregator)->mergeStatusStrings($bucket->get($containerName), $containerStatus));
                         }
                     } else {
                         $previewKey = $applicationId.':'.$pullRequestId;
@@ -277,7 +279,9 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
                     }
                     $containerName = $labels->get('com.docker.compose.service');
                     if ($containerName) {
-                        $this->serviceContainerStatuses->get($key)->put($containerName, $containerStatus);
+                        // Merge replicas sharing the same compose service name.
+                        $bucket = $this->serviceContainerStatuses->get($key);
+                        $bucket->put($containerName, (new ContainerStatusAggregator)->mergeStatusStrings($bucket->get($containerName), $containerStatus));
                     }
                 } elseif ($subType === 'database') {
                     $this->foundServiceDatabaseIds->push($subId);
@@ -288,7 +292,9 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
                     }
                     $containerName = $labels->get('com.docker.compose.service');
                     if ($containerName) {
-                        $this->serviceContainerStatuses->get($key)->put($containerName, $containerStatus);
+                        // Merge replicas sharing the same compose service name.
+                        $bucket = $this->serviceContainerStatuses->get($key);
+                        $bucket->put($containerName, (new ContainerStatusAggregator)->mergeStatusStrings($bucket->get($containerName), $containerStatus));
                     }
                 }
             } else {

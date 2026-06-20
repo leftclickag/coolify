@@ -9,11 +9,18 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class CheckServiceAutoscalingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * Number of recent samples to average when making a scaling decision.
+     * The job runs every minute, so 5 samples ≈ a 5-minute moving average.
+     */
+    private const SAMPLE_WINDOW = 5;
 
     public function __construct()
     {
@@ -36,14 +43,6 @@ class CheckServiceAutoscalingJob implements ShouldQueue
     private function checkAndScale(ServiceApplication $application): void
     {
         try {
-            // Respect the cooldown window to avoid flapping
-            if ($application->autoscale_last_scaled_at) {
-                $elapsed = now()->diffInSeconds($application->autoscale_last_scaled_at);
-                if ($elapsed < ($application->autoscale_cooldown_seconds ?? 300)) {
-                    return;
-                }
-            }
-
             // At least one threshold must be configured
             if ($application->autoscale_cpu_threshold === null && $application->autoscale_memory_threshold === null) {
                 return;
@@ -79,8 +78,26 @@ class CheckServiceAutoscalingJob implements ShouldQueue
                 return;
             }
 
-            $avgCpu = $stats->avg(fn ($s) => (float) str_replace('%', '', $s['CPUPerc']));
-            $avgMem = $stats->avg(fn ($s) => (float) str_replace('%', '', $s['MemPerc']));
+            // Current snapshot averaged across the running replicas
+            $snapshotCpu = (float) $stats->avg(fn ($s) => (float) str_replace('%', '', $s['CPUPerc']));
+            $snapshotMem = (float) $stats->avg(fn ($s) => (float) str_replace('%', '', $s['MemPerc']));
+
+            // Push the snapshot into a rolling window and read back the smoothed averages.
+            // This keeps a single transient spike from immediately triggering a scale event.
+            [$avgCpu, $avgMem, $samplesCount] = $this->recordAndSmooth($application->id, $snapshotCpu, $snapshotMem);
+
+            // Respect the cooldown window to avoid flapping. We still recorded the sample
+            // above so the moving average stays continuous during the cooldown.
+            if ($application->autoscale_last_scaled_at) {
+                $elapsed = now()->diffInSeconds($application->autoscale_last_scaled_at);
+                if ($elapsed < ($application->autoscale_cooldown_seconds ?? 300)) {
+                    return;
+                }
+            }
+
+            // Require a full window before scaling down (avoids over-eager shrink right
+            // after startup). Scaling up may happen as soon as the average crosses.
+            $windowFull = $samplesCount >= self::SAMPLE_WINDOW;
 
             $current = (int) ($application->replicas ?? 1);
             $min = (int) ($application->autoscale_min_replicas ?? 1);
@@ -114,16 +131,54 @@ class CheckServiceAutoscalingJob implements ShouldQueue
             $newReplicas = $current;
             if ($scaleUp && $current < $max) {
                 $newReplicas = $current + 1;
-            } elseif (! $holdScaleDown && $current > $min) {
+            } elseif ($windowFull && ! $holdScaleDown && $current > $min) {
                 $newReplicas = $current - 1;
             }
 
             if ($newReplicas !== $current) {
                 ScaleServiceApplication::run($application, $newReplicas);
-                Log::info("Autoscaled service application [{$service->name}/{$serviceName}] {$current} → {$newReplicas} (CPU {$avgCpu}% / MEM {$avgMem}%)");
+                $this->resetWindow($application->id);
+                Log::info(sprintf(
+                    'Autoscaled service application [%s/%s] %d → %d (avg CPU %.1f%% / MEM %.1f%% over %d samples)',
+                    $service->name, $serviceName, $current, $newReplicas, $avgCpu, $avgMem, $samplesCount
+                ));
             }
         } catch (\Throwable $e) {
             Log::error("Autoscaling check failed for service application [{$application->name}]: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Append a sample to the rolling window cache and return the smoothed averages.
+     *
+     * @return array{0: float, 1: float, 2: int}  [avgCpu, avgMem, sampleCount]
+     */
+    private function recordAndSmooth(int $applicationId, float $cpu, float $mem): array
+    {
+        $key = "autoscale:samples:{$applicationId}";
+        $samples = Cache::get($key, []);
+        if (! is_array($samples)) {
+            $samples = [];
+        }
+
+        $samples[] = ['cpu' => $cpu, 'mem' => $mem];
+        // Keep only the most recent SAMPLE_WINDOW samples
+        if (count($samples) > self::SAMPLE_WINDOW) {
+            $samples = array_slice($samples, -self::SAMPLE_WINDOW);
+        }
+
+        // Cache for long enough to survive between minute-runs, refreshed each time.
+        Cache::put($key, $samples, now()->addMinutes(self::SAMPLE_WINDOW * 3));
+
+        $count = count($samples);
+        $avgCpu = $count > 0 ? array_sum(array_column($samples, 'cpu')) / $count : $cpu;
+        $avgMem = $count > 0 ? array_sum(array_column($samples, 'mem')) / $count : $mem;
+
+        return [$avgCpu, $avgMem, $count];
+    }
+
+    private function resetWindow(int $applicationId): void
+    {
+        Cache::forget("autoscale:samples:{$applicationId}");
     }
 }

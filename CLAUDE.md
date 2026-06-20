@@ -106,8 +106,9 @@ Built-in Model Context Protocol server at `app/Mcp/` — exposes Coolify as a to
 
 ### Key Domain Concepts
 - **Server** — A managed host connected via SSH. Has settings, proxy config, and destinations.
-- **Application** — A deployed app (from Git or Docker image) with environment variables, previews, deployment queue.
-- **Service** — A pre-configured service stack from templates (`templates/service-templates-latest.json`).
+- **Application** — A deployed app (from Git or Docker image) with environment variables, previews, deployment queue. When `build_pack = 'dockercompose'`, child `ApplicationDockerService` rows are synced from the compose YAML and shown as per-service cards on the configuration page.
+- **ApplicationDockerService** — Child model of `Application` (compose buildpack only). One row per compose service; tracks live container status via `ComplexStatusCheck`. See `.ai/features/compose-application-services.md`.
+- **Service** — A pre-configured service stack from templates (`templates/service-templates-latest.json`). Uses `ServiceApplication` / `ServiceDatabase` child models for full per-service management (individual env vars, domains, backups, settings).
 - **Standalone Databases** — Individual database instances (Postgres, MySQL, MariaDB, MongoDB, Redis, Clickhouse, KeyDB, Dragonfly).
 - **Project/Environment** — Organizational hierarchy: Team → Project → Environment → Resources.
 - **Proxy** — Traefik reverse proxy managed per server.

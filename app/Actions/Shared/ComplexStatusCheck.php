@@ -3,6 +3,7 @@
 namespace App\Actions\Shared;
 
 use App\Models\Application;
+use App\Models\ApplicationDockerService;
 use App\Services\ContainerStatusAggregator;
 use App\Traits\CalculatesExcludedStatus;
 use Lorisleiva\Actions\Concerns\AsAction;
@@ -21,6 +22,7 @@ class ComplexStatusCheck
             if (! $server->isFunctional()) {
                 if ($is_main_server) {
                     $application->update(['status' => 'exited']);
+                    $this->markDockerServicesExited($application);
 
                     continue;
                 } else {
@@ -40,6 +42,7 @@ class ComplexStatusCheck
                     if ($statusFromDb !== $statusToSet) {
                         $application->update(['status' => $statusToSet]);
                     }
+                    $this->updateDockerServiceStatuses($application, $containers);
                 } else {
                     $additional_server = $application->additional_servers()->wherePivot('server_id', $server->id);
                     $statusFromDb = $additional_server->first()->pivot->status;
@@ -50,6 +53,7 @@ class ComplexStatusCheck
             } else {
                 if ($is_main_server) {
                     $application->update(['status' => 'exited']);
+                    $this->markDockerServicesExited($application);
 
                     continue;
                 } else {
@@ -59,6 +63,54 @@ class ComplexStatusCheck
                 }
             }
         }
+    }
+
+    private function updateDockerServiceStatuses(Application $application, $containers): void
+    {
+        if ($application->build_pack !== 'dockercompose') {
+            return;
+        }
+
+        $dockerServices = ApplicationDockerService::where('application_id', $application->id)->get()->keyBy('name');
+        if ($dockerServices->isEmpty()) {
+            return;
+        }
+
+        // Group running containers by their compose service name.
+        $statusByService = [];
+        foreach ($containers as $container) {
+            $labels = data_get($container, 'Config.Labels', []);
+            $serviceName = data_get($labels, 'com.docker.compose.service');
+            if (! $serviceName) {
+                continue;
+            }
+            $state = data_get($container, 'State.Status', 'exited');
+            $health = data_get($container, 'State.Health.Status');
+            $containerStatus = $health ? "{$state}:{$health}" : $state;
+
+            // Prefer non-exited status when multiple containers share a service name (replicas).
+            if (! isset($statusByService[$serviceName]) || $state === 'running') {
+                $statusByService[$serviceName] = $containerStatus;
+            }
+        }
+
+        foreach ($dockerServices as $name => $dockerService) {
+            $newStatus = $statusByService[$name] ?? 'exited';
+            if ($dockerService->status !== $newStatus) {
+                $dockerService->update(['status' => $newStatus]);
+            }
+        }
+    }
+
+    private function markDockerServicesExited(Application $application): void
+    {
+        if ($application->build_pack !== 'dockercompose') {
+            return;
+        }
+
+        ApplicationDockerService::where('application_id', $application->id)
+            ->where('status', '!=', 'exited')
+            ->update(['status' => 'exited']);
     }
 
     private function aggregateContainerStatuses($application, $containers)

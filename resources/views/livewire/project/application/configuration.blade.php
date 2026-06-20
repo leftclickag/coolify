@@ -57,6 +57,17 @@
         <div class="w-full sm:flex-grow">
             @if ($currentRoute === 'project.application.configuration')
                 <livewire:project.application.general :application="$application" />
+                @if ($application->build_pack === 'dockercompose' && $application->dockerServices->isNotEmpty())
+                    <h3 class="mt-8">Services</h3>
+                    <div class="grid grid-cols-1 gap-2 pt-4">
+                        @foreach ($application->dockerServices as $dockerService)
+                            <livewire:project.application.docker-service-card
+                                :application="$application"
+                                :dockerService="$dockerService"
+                                wire:key="docker-service-card-{{ $dockerService->id }}" />
+                        @endforeach
+                    </div>
+                @endif
             @elseif ($currentRoute === 'project.application.swarm' && $application->destination->server->isSwarm())
                 <livewire:project.application.swarm :application="$application" />
             @elseif ($currentRoute === 'project.application.advanced')

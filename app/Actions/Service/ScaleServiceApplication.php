@@ -16,20 +16,12 @@ class ScaleServiceApplication
      * date, then issues `docker compose up -d --force-recreate --scale` targeting
      * only the named service.
      *
-     * @throws \RuntimeException when the service has host port bindings and replicas > 1
+     * When replicas > 1, the parser automatically converts any host port bindings
+     * into `expose` entries (host ports cannot be shared across replicas); the proxy
+     * load-balances across them, or they stay internal-only if no FQDN is set.
      */
     public function handle(ServiceApplication $serviceApplication, int $replicas): void
     {
-        if ($replicas > 1 && $this->hasHostPortBindings($serviceApplication)) {
-            throw new \RuntimeException(
-                "Cannot scale \"{$serviceApplication->name}\" to {$replicas} replicas: ".
-                'it has host port bindings ('.($serviceApplication->ports ?? '').') '.
-                'which cannot be shared across multiple containers. '.
-                'Remove host port mappings from the compose file and use the proxy (Traefik) '.
-                'to route traffic instead.'
-            );
-        }
-
         $replicas = max(
             max(1, (int) ($serviceApplication->autoscale_min_replicas ?? 1)),
             min(max(1, (int) ($serviceApplication->autoscale_max_replicas ?? 50)), $replicas)
@@ -75,30 +67,5 @@ class ScaleServiceApplication
         }
 
         instant_remote_process($commands, $server);
-    }
-
-    /**
-     * Returns true if any of the service application's ports include a host-side
-     * binding (e.g. "3000:80", "0.0.0.0:443:443").  A plain container port like
-     * "80" has no colon and is safe to use with multiple replicas.
-     */
-    private function hasHostPortBindings(ServiceApplication $serviceApplication): bool
-    {
-        $ports = $serviceApplication->ports;
-        if (blank($ports)) {
-            return false;
-        }
-
-        foreach (explode(',', $ports) as $port) {
-            $port = trim($port);
-            // Remove optional protocol suffix  (e.g. "80/tcp")
-            $port = explode('/', $port)[0];
-            // A colon indicates host:container or ip:host:container mapping
-            if (str_contains($port, ':')) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

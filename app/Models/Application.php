@@ -1031,6 +1031,11 @@ class Application extends BaseModel
         return $this->hasMany(ScheduledTask::class)->orderBy('name', 'asc');
     }
 
+    public function dockerServices(): HasMany
+    {
+        return $this->hasMany(ApplicationDockerService::class)->orderBy('name', 'asc');
+    }
+
     public function private_key()
     {
         return $this->belongsTo(PrivateKey::class);
@@ -1909,7 +1914,12 @@ class Application extends BaseModel
     public function parse(int $pull_request_id = 0, ?int $preview_id = null, ?string $commit = null)
     {
         if ((int) $this->compose_parsing_version >= 3) {
-            return applicationParser($this, $pull_request_id, $preview_id, $commit);
+            $result = applicationParser($this, $pull_request_id, $preview_id, $commit);
+            if ($pull_request_id === 0) {
+                syncApplicationDockerServices($this);
+            }
+
+            return $result;
         } elseif ($this->docker_compose_raw) {
             return parseDockerComposeFile(resource: $this, isNew: false, pull_request_id: $pull_request_id, preview_id: $preview_id);
         } else {
