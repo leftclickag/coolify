@@ -63,19 +63,22 @@ class ServiceApplication extends BaseModel
 
     public function restart()
     {
+        // Single-replica path: keep the exact upstream behaviour to avoid regressions.
+        $container_id = $this->name.'-'.$this->service->uuid;
         $server = $this->service->server;
-        $name = $this->name;
-        $uuid = $this->service->uuid;
 
-        if (($this->replicas ?? 1) > 1) {
-            // Restart all replicas via compose so the project-aware naming is used.
+        // Multi-replica path: only used when explicitly scaled above 1.
+        // Scaled services have no static container_name, so we use compose restart.
+        if ((int) ($this->replicas ?? 1) > 1) {
             $workdir = $this->workdir();
             instant_remote_process([
-                "docker compose --project-directory {$workdir} -f {$workdir}/docker-compose.yml --project-name {$uuid} restart {$name}",
+                "docker compose --project-directory {$workdir} -f {$workdir}/docker-compose.yml --project-name {$this->service->uuid} restart {$this->name}",
             ], $server);
-        } else {
-            instant_remote_process(["docker restart {$name}-{$uuid}"], $server);
+
+            return;
         }
+
+        instant_remote_process(["docker restart {$container_id}"], $server);
     }
 
     public static function ownedByCurrentTeamAPI(int $teamId)
