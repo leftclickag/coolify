@@ -19,8 +19,6 @@ class Monitor extends Component
     /** @var array<string, array<string, mixed>> */
     public array $traefikServices = [];
 
-    public bool $autoRefresh = false;
-
     public ?string $polledAt = null;
 
     public bool $pollPending = false;
@@ -29,6 +27,8 @@ class Monitor extends Component
     {
         $this->service = $service;
         $this->loadFromCache();
+        // Kick off the first poll immediately on page load
+        $this->requestRefresh();
     }
 
     public function getListeners(): array
@@ -51,35 +51,40 @@ class Monitor extends Component
             $this->containers = $cached['containers'] ?? [];
             $this->traefikServices = $cached['traefik'] ?? [];
             $this->polledAt = $cached['polled_at'] ?? null;
-            $this->pollPending = false;
         }
     }
 
     /**
-     * Dispatch a background poll job and set "pending" state so the UI shows
-     * a spinner. The UI auto-refreshes via wire:poll until data arrives.
+     * Dispatch a background poll job and record when we dispatched it so we
+     * don't stack up multiple overlapping polls.
      */
     public function requestRefresh(): void
     {
         PollServiceContainerStatsJob::dispatch($this->service->id);
-        $this->pollPending = true;
+        Cache::put(self::pendingKey($this->service->uuid), now()->toIso8601String(), now()->addSeconds(30));
+    }
+
+    private static function pendingKey(string $uuid): string
+    {
+        return PollServiceContainerStatsJob::CACHE_KEY_PREFIX.'pending:'.$uuid;
     }
 
     /**
-     * Called by wire:poll while pollPending is true — checks if fresh data landed.
+     * Called every 3s by wire:poll. Reads whatever is in cache and, if no
+     * poll is currently running, dispatches a fresh one so the displayed
+     * data stays live without requiring the user to click Refresh.
      */
     public function checkForFreshData(): void
     {
-        $cached = Cache::get(PollServiceContainerStatsJob::cacheKey($this->service->uuid));
+        $previousPollAt = Cache::get(self::pendingKey($this->service->uuid));
+        $this->pollPending = $previousPollAt !== null;
 
-        if (! $cached) {
-            return;
-        }
+        $this->loadFromCache();
 
-        // Consider data "fresh" if it arrived after we requested the poll
-        $polledAt = $cached['polled_at'] ?? null;
-        if ($polledAt && now()->subSeconds(PollServiceContainerStatsJob::CACHE_TTL_SECONDS / 2)->isBefore($polledAt)) {
-            $this->loadFromCache();
+        // If a poll isn't already in flight, kick off the next one.
+        if (! $this->pollPending) {
+            $this->requestRefresh();
+            $this->pollPending = true;
         }
     }
 

@@ -72,28 +72,32 @@ class PollServiceContainerStatsJob implements ShouldQueue
                 return;
             }
 
-            // 2. Stats for running containers only
-            $runningIds = $containers
+            // 2. Stats for running containers only — match by Name (docker ps and docker stats
+            // both report the Name field consistently; the ID field format differs between
+            // the two commands in modern Docker versions, so it cannot be used as a join key).
+            $runningNames = $containers
                 ->filter(fn ($c) => str_contains(strtolower(data_get($c, 'State', '')), 'running'))
-                ->pluck('ID')->filter()->values();
+                ->pluck('Names')->filter()->values();
 
             $statsMap = collect();
-            if ($runningIds->isNotEmpty()) {
+            if ($runningNames->isNotEmpty()) {
+                // docker stats accepts container names as positional args
                 $statsRaw = instant_remote_process([
-                    'docker stats --no-stream --format \'{{json .}}\' '.$runningIds->implode(' ').' 2>/dev/null || true',
+                    'docker stats --no-stream --format \'{{json .}}\' '.$runningNames->implode(' ').' 2>/dev/null || true',
                 ], $server, false);
 
                 collect(explode("\n", trim((string) $statsRaw)))
                     ->filter()
                     ->map(fn ($l) => json_decode($l, true))
                     ->filter(fn ($r) => is_array($r))
-                    ->each(fn ($s) => $statsMap->put(substr(data_get($s, 'ID', ''), 0, 12), $s));
+                    // Normalise name: docker stats prefixes with '/', docker ps may or may not
+                    ->each(fn ($s) => $statsMap->put(ltrim((string) data_get($s, 'Name', ''), '/'), $s));
             }
 
             // 3. Merge and normalise
             $result = $containers->map(function ($c) use ($statsMap) {
-                $shortId = substr(data_get($c, 'ID', ''), 0, 12);
-                $stats = $statsMap->get($shortId, []);
+                $name = ltrim((string) data_get($c, 'Names', ''), '/');
+                $stats = $statsMap->get($name, []);
                 $statusStr = data_get($c, 'Status', '');
 
                 $health = null;
@@ -113,8 +117,8 @@ class PollServiceContainerStatsJob implements ShouldQueue
                     });
 
                 return [
-                    'id' => $shortId,
-                    'name' => ltrim(data_get($c, 'Names', ''), '/'),
+                    'id' => substr((string) data_get($c, 'ID', ''), 0, 12),
+                    'name' => $name,
                     'service' => $labels->get('com.docker.compose.service', ''),
                     'replica' => (int) $labels->get('com.docker.compose.container-number', 1),
                     'image' => data_get($c, 'Image', ''),
@@ -161,6 +165,9 @@ class PollServiceContainerStatsJob implements ShouldQueue
 
         } catch (\Throwable $e) {
             Log::warning("PollServiceContainerStatsJob failed for service {$uuid}: {$e->getMessage()}");
+        } finally {
+            // Always clear the pending flag so the UI knows it can dispatch the next poll
+            Cache::forget(self::CACHE_KEY_PREFIX.'pending:'.$uuid);
         }
     }
 }

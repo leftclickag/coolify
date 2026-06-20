@@ -1,5 +1,4 @@
-<div class="flex flex-col"
-    @if ($autoRefresh || $pollPending) wire:poll.3000ms="checkForFreshData" @endif>
+<div class="flex flex-col" wire:poll.3000ms="checkForFreshData">
 
     {{-- Header --}}
     <div class="flex items-center gap-3 pb-4">
@@ -13,12 +12,9 @@
             </span>
         @endif
         <div class="ml-auto flex items-center gap-3">
-            <label class="flex items-center gap-1.5 text-xs dark:text-neutral-400 cursor-pointer select-none">
-                <input type="checkbox" wire:model.live="autoRefresh" class="checkbox checkbox-xs" />
-                Auto-refresh (30s)
-            </label>
+            <span class="text-xs dark:text-neutral-500">Auto-refreshing every 3s</span>
             <x-forms.button wire:click="requestRefresh" wire:loading.attr="disabled" wire:target="requestRefresh">
-                Refresh
+                Refresh Now
             </x-forms.button>
         </div>
     </div>
