@@ -58,6 +58,41 @@ npm run build                   # production build
 - API controllers in `app/Http/Controllers/Api/` use inline `Validator` (not Form Request classes)
 - Response serialization via `serializeApiResponse()` helper
 
+### MCP Server
+Built-in Model Context Protocol server at `app/Mcp/` — exposes Coolify as a tool-callable API for AI agents. Served via `php artisan boost:mcp` (Laravel MCP v0).
+
+**Entry point:** `app/Mcp/Servers/CoolifyServer.php` — registers all tools, sets version and instructions.
+
+**Tool files:** `app/Mcp/Tools/` — one class per tool. All tools share two traits:
+- `ResolvesTeam` — authenticates the Sanctum token and resolves the team ID; call `$this->ensureAbility($request, 'read'|'write'|'deploy')` first in every handler
+- `BuildsResponse` — `$this->respond($data, $actions, $pagination)` wraps output in `{ data, _actions?, _pagination? }`; `$this->scrubSensitive($array)` strips credentials/IDs
+
+**Token abilities required:**
+- `read` — all list/get tools
+- `write` — create/update/delete tools
+- `deploy` — `control`, `deploy`, `cancel_deployment`
+
+**Current tools (33 total):**
+
+| Category | Tools |
+|---|---|
+| Read | `get_infrastructure_overview`, `list_servers`, `get_server`, `list_projects`, `list_applications`, `get_application`, `list_databases`, `get_database`, `list_services`, `get_service` |
+| Deployments | `deploy`, `get_deployment`, `list_deployments`, `cancel_deployment` |
+| Control | `control` (start/stop/restart any resource) |
+| Env vars | `list_envs`, `set_env`, `delete_env` |
+| Logs | `get_logs` |
+| Templates | `list_templates`, `create_service_from_template` |
+| Lifecycle | `create_application`, `create_database`, `delete_resource` |
+| Projects | `create_project`, `update_project`, `delete_project`, `create_environment`, `delete_environment` |
+| Tasks | `list_scheduled_tasks`, `create_scheduled_task`, `delete_scheduled_task` |
+| Execute | `execute_command` |
+
+**Adding a new tool:**
+1. Create `app/Mcp/Tools/MyTool.php` — extend `Tool`, add `#[Name('my_tool')]` and `#[Description('...')]` attributes, implement `handle(Request $request): Response` and `schema(JsonSchema $schema): array`
+2. Register it in the `$tools` array in `CoolifyServer.php`
+
+**Tests:** `tests/Feature/Mcp/` — `McpEndpointTest.php` (auth, listing, read tools) and `McpWriteToolsTest.php` (write/deploy tools, permission guards)
+
 ### Authorization
 - Policy-based authorization with ~15 model-to-policy mappings in `AuthServiceProvider`
 - Custom gates: `createAnyResource`, `canAccessTerminal`

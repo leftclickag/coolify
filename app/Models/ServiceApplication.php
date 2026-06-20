@@ -63,8 +63,19 @@ class ServiceApplication extends BaseModel
 
     public function restart()
     {
-        $container_id = $this->name.'-'.$this->service->uuid;
-        instant_remote_process(["docker restart {$container_id}"], $this->service->server);
+        $server = $this->service->server;
+        $name = $this->name;
+        $uuid = $this->service->uuid;
+
+        if (($this->replicas ?? 1) > 1) {
+            // Restart all replicas via compose so the project-aware naming is used.
+            $workdir = $this->workdir();
+            instant_remote_process([
+                "docker compose --project-directory {$workdir} -f {$workdir}/docker-compose.yml --project-name {$uuid} restart {$name}",
+            ], $server);
+        } else {
+            instant_remote_process(["docker restart {$name}-{$uuid}"], $server);
+        }
     }
 
     public static function ownedByCurrentTeamAPI(int $teamId)

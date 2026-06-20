@@ -13,11 +13,23 @@ class ScaleServiceApplication
      * Scale a service application to the given replica count.
      *
      * Re-parses and re-saves the compose file so the deploy.replicas key is up to
-     * date, then issues `docker compose up -d --no-recreate --scale` to apply the
-     * change without stopping healthy containers.
+     * date, then issues `docker compose up -d --force-recreate --scale` targeting
+     * only the named service.
+     *
+     * @throws \RuntimeException when the service has host port bindings and replicas > 1
      */
     public function handle(ServiceApplication $serviceApplication, int $replicas): void
     {
+        if ($replicas > 1 && $this->hasHostPortBindings($serviceApplication)) {
+            throw new \RuntimeException(
+                "Cannot scale \"{$serviceApplication->name}\" to {$replicas} replicas: ".
+                'it has host port bindings ('.($serviceApplication->ports ?? '').') '.
+                'which cannot be shared across multiple containers. '.
+                'Remove host port mappings from the compose file and use the proxy (Traefik) '.
+                'to route traffic instead.'
+            );
+        }
+
         $replicas = max(
             max(1, (int) ($serviceApplication->autoscale_min_replicas ?? 1)),
             min(max(1, (int) ($serviceApplication->autoscale_max_replicas ?? 50)), $replicas)
@@ -39,8 +51,54 @@ class ScaleServiceApplication
         $name = $serviceApplication->name;
         $uuid = $service->uuid;
 
-        instant_remote_process([
-            "docker compose --project-directory {$workdir} -f {$workdir}/docker-compose.yml --project-name {$uuid} up -d --no-recreate --scale {$name}={$replicas}",
-        ], $server);
+        // --force-recreate targets only this service (name appended at end).
+        // This is intentional: when scaling from 1 → N the original container had a
+        // static container_name that is now removed from the compose file; without
+        // force-recreate Docker Compose would leave that oddly-named container running
+        // alongside correctly-numbered new ones.  Targeting only $name means the other
+        // services in the stack are never touched.
+        $commands = [
+            "docker compose --project-directory {$workdir} -f {$workdir}/docker-compose.yml --project-name {$uuid} up -d --force-recreate --scale {$name}={$replicas} {$name}",
+        ];
+
+        // If connect_to_docker_network is enabled, each new replica must also be
+        // connected to the server's destination network so it can reach other Coolify
+        // resources.  StartService does this for replica-1 via container_name; we
+        // replicate it for all replicas here using Docker Compose labels to find them.
+        if (data_get($service, 'connect_to_docker_network')) {
+            $destinationNetwork = escapeshellarg($service->destination->network);
+            for ($i = 1; $i <= $replicas; $i++) {
+                $containerName = "{$uuid}-{$name}-{$i}";
+                $alias = escapeshellarg("{$name}-{$uuid}");
+                $commands[] = "docker network connect --alias {$alias} {$destinationNetwork} {$containerName} 2>/dev/null || true";
+            }
+        }
+
+        instant_remote_process($commands, $server);
+    }
+
+    /**
+     * Returns true if any of the service application's ports include a host-side
+     * binding (e.g. "3000:80", "0.0.0.0:443:443").  A plain container port like
+     * "80" has no colon and is safe to use with multiple replicas.
+     */
+    private function hasHostPortBindings(ServiceApplication $serviceApplication): bool
+    {
+        $ports = $serviceApplication->ports;
+        if (blank($ports)) {
+            return false;
+        }
+
+        foreach (explode(',', $ports) as $port) {
+            $port = trim($port);
+            // Remove optional protocol suffix  (e.g. "80/tcp")
+            $port = explode('/', $port)[0];
+            // A colon indicates host:container or ip:host:container mapping
+            if (str_contains($port, ':')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

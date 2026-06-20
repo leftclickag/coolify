@@ -84,6 +84,20 @@ class UpdateCoolify
         }
 
         $this->currentVersion = config('constants.coolify.version');
+
+        // For custom builds installed via leftclick-install.sh, version numbers are
+        // meaningless — skip all upstream version comparisons and go straight to rebuild.
+        if ($this->isLeftclickBuild()) {
+            if (! $manual_update && ! $settings->is_auto_update_enabled) {
+                return;
+            }
+            $this->update();
+            $settings->new_version_available = false;
+            $settings->save();
+
+            return;
+        }
+
         if (! $manual_update) {
             if (! $settings->is_auto_update_enabled) {
                 return;
@@ -116,12 +130,43 @@ class UpdateCoolify
 
     private function update()
     {
+        // When installed via leftclick-install.sh a metadata file exists.
+        // In that case we rebuild from the source repo instead of pulling
+        // a pre-built image from the upstream registry.
+        if ($this->isLeftclickBuild()) {
+            $this->updateLeftclick();
+
+            return;
+        }
+
         $latestHelperImageVersion = getHelperVersion();
         $upgradeScriptUrl = config('constants.coolify.upgrade_script_url');
 
         remote_process([
             "curl -fsSL {$upgradeScriptUrl} -o /data/coolify/source/upgrade.sh",
             "bash /data/coolify/source/upgrade.sh $this->latestVersion $latestHelperImageVersion",
+        ], $this->server);
+    }
+
+    private function isLeftclickBuild(): bool
+    {
+        if ($this->server === null) {
+            return false;
+        }
+
+        $result = instant_remote_process(
+            ['test -f /data/coolify/source/.leftclick-build && echo 1 || echo 0'],
+            $this->server,
+            false
+        );
+
+        return trim((string) $result) === '1';
+    }
+
+    private function updateLeftclick(): void
+    {
+        remote_process([
+            'bash /data/coolify/source/leftclick-update.sh',
         ], $this->server);
     }
 }

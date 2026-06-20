@@ -67,6 +67,10 @@ else
     exit 1
 fi
 
+# Refresh the copy of this script so UpdateCoolify.php always has the latest version
+cp "${BUILD_DIR}/scripts/leftclick-update.sh" "${SOURCE_DIR}/leftclick-update.sh"
+chmod +x "${SOURCE_DIR}/leftclick-update.sh"
+
 # ── 2. Rebuild the image ──────────────────────────────────────────────────────
 section "2/4 Rebuilding Docker image"
 PREVIOUS_ID=$(docker images -q "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true)

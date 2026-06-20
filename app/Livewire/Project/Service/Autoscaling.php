@@ -17,6 +17,8 @@ class Autoscaling extends Component
 
     public Service $service;
 
+    public bool $hasHostPorts = false;
+
     #[Validate('required|integer|min:1|max:50')]
     public int $replicas = 1;
 
@@ -42,7 +44,24 @@ class Autoscaling extends Component
     {
         $this->serviceApplication = $serviceApplication;
         $this->service = $serviceApplication->service;
+        $this->hasHostPorts = $this->detectHostPorts();
         $this->syncData();
+    }
+
+    private function detectHostPorts(): bool
+    {
+        $ports = $this->serviceApplication->ports;
+        if (blank($ports)) {
+            return false;
+        }
+
+        foreach (explode(',', $ports) as $port) {
+            if (str_contains(explode('/', trim($port))[0], ':')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function syncData(bool $toModel = false): void

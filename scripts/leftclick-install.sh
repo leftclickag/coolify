@@ -190,6 +190,11 @@ BUILD_DIR="${BUILD_DIR}"
 LAST_INSTALLED="${DATE}"
 EOF
 
+# Place the updater script on the server so UpdateCoolify.php can call it directly
+# (no network access required at update time)
+cp "${BUILD_DIR}/scripts/leftclick-update.sh" "${SOURCE_DIR}/leftclick-update.sh"
+chmod +x "${SOURCE_DIR}/leftclick-update.sh"
+
 log "Done."
 
 # ── 7. Environment file ───────────────────────────────────────────────────────

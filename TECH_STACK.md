@@ -4,16 +4,17 @@
 
 -   Livewire and Alpine.js
 -   Blade (PHP templating engine)
--   Tailwind CSS
+-   Tailwind CSS v4
 -   Monaco Editor (Code editor component)
 -   XTerm.js (Terminal component)
 
 ## Backend
 
--   Laravel 11 (PHP Framework)
+-   Laravel 12 (PHP Framework, using Laravel 10 file structure)
 -   PostgreSQL 15 (Database)
 -   Redis 7 (Caching & Real-time features)
 -   Soketi (WebSocket Server)
+-   Laravel MCP v0 (Model Context Protocol server — `app/Mcp/`)
 
 ## DevOps & Infrastructure
 
