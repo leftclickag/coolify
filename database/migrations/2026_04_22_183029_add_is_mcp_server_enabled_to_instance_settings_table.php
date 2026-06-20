@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('instance_settings', function (Blueprint $table) {
-            $table->boolean('is_mcp_server_enabled')->default(false);
+            if (! Schema::hasColumn('instance_settings', 'is_mcp_server_enabled')) {
+                $table->boolean('is_mcp_server_enabled')->default(false);
+            }
         });
     }
 

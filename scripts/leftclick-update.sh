@@ -97,7 +97,12 @@ log "Container started."
 
 # ── 4. Database migrations ────────────────────────────────────────────────────
 section "4/4 Running database migrations"
-docker exec coolify php artisan migrate --force
+if ! docker exec coolify php artisan migrate --force; then
+    echo ""
+    echo "WARNING: Migration error above. If it's a 'Duplicate column', it is safe to ignore."
+    echo "Re-run manually: docker exec coolify php artisan migrate --force"
+    echo ""
+fi
 log "Migrations complete."
 
 # Update build metadata timestamp

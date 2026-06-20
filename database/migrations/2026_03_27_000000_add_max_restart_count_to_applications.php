@@ -9,7 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('applications', function (Blueprint $blueprint) {
-            $blueprint->integer('max_restart_count')->default(10)->after('restart_count');
+            if (! Schema::hasColumn('applications', 'max_restart_count')) {
+                $blueprint->integer('max_restart_count')->default(10)->after('restart_count');
+            }
         });
     }
 

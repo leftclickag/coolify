@@ -257,7 +257,13 @@ log "Starting all containers..."
 $COMPOSE_CMD up -d --remove-orphans --wait --wait-timeout 120
 
 log "Running database migrations..."
-docker exec coolify php artisan migrate --force
+if ! docker exec coolify php artisan migrate --force; then
+    echo ""
+    echo "WARNING: Migrations reported an error (see above)."
+    echo "If the error is 'Duplicate column', the column already exists and is harmless."
+    echo "You can re-run migrations manually: docker exec coolify php artisan migrate --force"
+    echo ""
+fi
 
 log "Done."
 

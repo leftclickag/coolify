@@ -19,13 +19,23 @@ return new class extends Migration
 
     public function up(): void
     {
-        foreach ($this->tables as $table) {
-            Schema::table($table, function (Blueprint $table) {
-                $table->boolean('health_check_enabled')->default(true);
-                $table->integer('health_check_interval')->default(15);
-                $table->integer('health_check_timeout')->default(5);
-                $table->integer('health_check_retries')->default(5);
-                $table->integer('health_check_start_period')->default(5);
+        foreach ($this->tables as $tableName) {
+            Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+                if (! Schema::hasColumn($tableName, 'health_check_enabled')) {
+                    $table->boolean('health_check_enabled')->default(true);
+                }
+                if (! Schema::hasColumn($tableName, 'health_check_interval')) {
+                    $table->integer('health_check_interval')->default(15);
+                }
+                if (! Schema::hasColumn($tableName, 'health_check_timeout')) {
+                    $table->integer('health_check_timeout')->default(5);
+                }
+                if (! Schema::hasColumn($tableName, 'health_check_retries')) {
+                    $table->integer('health_check_retries')->default(5);
+                }
+                if (! Schema::hasColumn($tableName, 'health_check_start_period')) {
+                    $table->integer('health_check_start_period')->default(5);
+                }
             });
         }
     }

@@ -12,8 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('personal_access_tokens', function (Blueprint $table) {
-            $table->timestamp('api_token_expiration_warning_sent_at')->nullable()->after('expires_at');
-            $table->index(['expires_at', 'api_token_expiration_warning_sent_at'], 'personal_access_tokens_expiration_warning_index');
+            if (! Schema::hasColumn('personal_access_tokens', 'api_token_expiration_warning_sent_at')) {
+                $table->timestamp('api_token_expiration_warning_sent_at')->nullable()->after('expires_at');
+            }
+            if (! Schema::hasIndex('personal_access_tokens', 'personal_access_tokens_expiration_warning_index')) {
+                $table->index(['expires_at', 'api_token_expiration_warning_sent_at'], 'personal_access_tokens_expiration_warning_index');
+            }
         });
     }
 

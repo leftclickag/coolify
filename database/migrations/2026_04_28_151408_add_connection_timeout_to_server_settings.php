@@ -9,7 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('server_settings', function (Blueprint $table) {
-            $table->integer('connection_timeout')->default(10)->after('deployment_queue_limit');
+            if (! Schema::hasColumn('server_settings', 'connection_timeout')) {
+                $table->integer('connection_timeout')->default(10)->after('deployment_queue_limit');
+            }
         });
     }
 

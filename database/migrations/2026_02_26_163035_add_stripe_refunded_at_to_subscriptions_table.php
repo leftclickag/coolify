@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('subscriptions', function (Blueprint $table) {
-            $table->timestamp('stripe_refunded_at')->nullable()->after('stripe_past_due');
+            if (! Schema::hasColumn('subscriptions', 'stripe_refunded_at')) {
+                $table->timestamp('stripe_refunded_at')->nullable()->after('stripe_past_due');
+            }
         });
     }
 

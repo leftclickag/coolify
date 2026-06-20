@@ -9,11 +9,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('local_file_volumes', function (Blueprint $table) {
-            $table->boolean('is_preview_suffix_enabled')->default(true)->after('is_based_on_git');
+            if (! Schema::hasColumn('local_file_volumes', 'is_preview_suffix_enabled')) {
+                $table->boolean('is_preview_suffix_enabled')->default(true)->after('is_based_on_git');
+            }
         });
 
         Schema::table('local_persistent_volumes', function (Blueprint $table) {
-            $table->boolean('is_preview_suffix_enabled')->default(true)->after('host_path');
+            if (! Schema::hasColumn('local_persistent_volumes', 'is_preview_suffix_enabled')) {
+                $table->boolean('is_preview_suffix_enabled')->default(true)->after('host_path');
+            }
         });
     }
 

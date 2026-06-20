@@ -9,11 +9,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('application_previews', function (Blueprint $table) {
-            $table->string('docker_registry_image_tag')->nullable()->after('docker_compose_domains');
+            if (! Schema::hasColumn('application_previews', 'docker_registry_image_tag')) {
+                $table->string('docker_registry_image_tag')->nullable()->after('docker_compose_domains');
+            }
         });
 
         Schema::table('application_deployment_queues', function (Blueprint $table) {
-            $table->string('docker_registry_image_tag')->nullable()->after('pull_request_id');
+            if (! Schema::hasColumn('application_deployment_queues', 'docker_registry_image_tag')) {
+                $table->string('docker_registry_image_tag')->nullable()->after('pull_request_id');
+            }
         });
     }
 
