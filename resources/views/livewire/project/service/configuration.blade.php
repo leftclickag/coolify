@@ -19,6 +19,8 @@
             <a class='sub-menu-item' wire:current.exact="menu-item-active" {{ wireNavigate() }}
                 href="{{ route('project.service.webhooks', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'service_uuid' => $service->uuid]) }}"><span class="menu-item-label">Webhooks</span></a>
             <a class='sub-menu-item' wire:current.exact="menu-item-active" {{ wireNavigate() }}
+                href="{{ route('project.service.monitor', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'service_uuid' => $service->uuid]) }}"><span class="menu-item-label">Monitor</span></a>
+            <a class='sub-menu-item' wire:current.exact="menu-item-active" {{ wireNavigate() }}
                 href="{{ route('project.service.resource-operations', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'service_uuid' => $service->uuid]) }}"><span class="menu-item-label">Resource Operations</span></a>
 
             <a class='sub-menu-item' wire:current.exact="menu-item-active" {{ wireNavigate() }}
@@ -69,6 +71,8 @@
                 <livewire:project.shared.scheduled-task.all :resource="$service" />
             @elseif ($currentRoute === 'project.service.scheduled-tasks')
                 <livewire:project.shared.scheduled-task.show />
+            @elseif ($currentRoute === 'project.service.monitor')
+                <livewire:project.service.monitor :service="$service" />
             @elseif ($currentRoute === 'project.service.webhooks')
                 <livewire:project.shared.webhooks :resource="$service" />
             @elseif ($currentRoute === 'project.service.resource-operations')

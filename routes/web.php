@@ -265,6 +265,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/storages', ServiceConfiguration::class)->name('project.service.storages');
         Route::get('/scheduled-tasks', ServiceConfiguration::class)->name('project.service.scheduled-tasks.show');
         Route::get('/webhooks', ServiceConfiguration::class)->name('project.service.webhooks');
+        Route::get('/monitor', ServiceConfiguration::class)->name('project.service.monitor');
         Route::get('/resource-operations', ServiceConfiguration::class)->name('project.service.resource-operations');
         Route::get('/tags', ServiceConfiguration::class)->name('project.service.tags');
         Route::get('/danger', ServiceConfiguration::class)->name('project.service.danger');
