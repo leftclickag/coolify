@@ -56,26 +56,33 @@ If the Traefik API is unreachable (e.g. production with `--api.insecure=false` a
 
 **No SSH on page load.** The monitor reads from Redis cache. SSH runs only in a background job.
 
+Collection is **per server, not per service**: a single `CollectServerContainerStatsJob`
+runs one `docker ps -a` + one `docker stats` for ALL of that server's containers, then writes
+one cache entry per Compose project (service uuid). This same job also drives autoscaling, so
+the two subsystems share one collection pass. The job is `ShouldBeUnique` keyed on the server,
+so the scheduler and any number of open Monitor tabs on the same host coalesce into one run.
+
 ```
-[every minute]  CheckServiceAutoscalingJob
-                └─ PollServiceContainerStatsJob::dispatch(serviceId)
-                      └─ docker ps  (SSH, disableMultiplexing)
-                      └─ docker stats  (SSH, disableMultiplexing)
-                      └─ docker exec coolify-proxy wget  (SSH, disableMultiplexing)
-                      └─ Cache::put('service:container-stats:{uuid}', ..., 120s)
+[every minute]  CheckServiceAutoscalingJob  (dispatcher, ShouldBeUnique)
+                └─ for each reachable server with autoscale apps or a live monitor cache:
+                   CollectServerContainerStatsJob::dispatch(serverId)
+                      └─ docker ps -a            (1 SSH for the whole server)
+                      └─ docker stats --no-stream (1 SSH for the whole server)
+                      └─ docker exec coolify-proxy wget  (1 SSH, only if a service has FQDNs)
+                      └─ Cache::put('service:container-stats:{uuid}', ..., 120s)  per service
+                      └─ ServiceAutoscaler::evaluate() per autoscale app (throttled to ~1/min)
 
 [page load]     Monitor::mount()
                 └─ Cache::get('service:container-stats:{uuid}')  ← instant, no SSH
 
-[Refresh click] Monitor::requestRefresh()
-                └─ PollServiceContainerStatsJob::dispatch()  ← queued background job
-                └─ wire:poll.3000ms='checkForFreshData'  ← UI polls cache until data lands
+[Refresh / poll] Monitor::requestRefresh()
+                └─ CollectServerContainerStatsJob::dispatch(serverId)  ← coalesced
+                └─ wire:poll.8000ms='checkForFreshData'  ← UI polls cache until data lands
 ```
 
-**Cache warm-up**: `CheckServiceAutoscalingJob` (runs every minute) also dispatches
-`PollServiceContainerStatsJob` for any service whose monitor cache key already exists
-(i.e. the Monitor tab has been opened before). So once a service is viewed, subsequent
-visits show data immediately without any SSH wait.
+**Cache warm-up**: the dispatcher dispatches a collector for any server hosting a service whose
+monitor cache key already exists (i.e. the Monitor tab has been opened before), so once a
+service is viewed, subsequent visits show data immediately without any SSH wait.
 
 ---
 
@@ -83,7 +90,10 @@ visits show data immediately without any SSH wait.
 
 | File | Purpose |
 |---|---|
-| `app/Livewire/Project/Service/Monitor.php` | Component — data fetching, merging, summary computed property |
+| `app/Jobs/CollectServerContainerStatsJob.php` | Per-server stats collection (SSH); writes per-service cache + drives autoscaling |
+| `app/Jobs/CheckServiceAutoscalingJob.php` | Scheduled dispatcher — fans out one collector per relevant server |
+| `app/Services/ServiceAutoscaler.php` | Scaling decision + sampling/cooldown/throttle logic (unit-tested) |
+| `app/Livewire/Project/Service/Monitor.php` | Component — reads cache, dispatches collector, summary computed property |
 | `resources/views/livewire/project/service/monitor.blade.php` | Blade view — summary cards, per-service tables, Traefik section |
 | `routes/web.php` | `project.service.monitor` route |
 | `resources/views/livewire/project/service/configuration.blade.php` | Monitor nav item + route handler |
@@ -95,5 +105,5 @@ visits show data immediately without any SSH wait.
 | Limitation | Notes |
 |---|---|
 | Traefik API | Only works if `--api.insecure=true` (dev) or proxy is accessible internally. In production, the `wget` runs inside the proxy container so it always hits `localhost:8080`. |
-| Sequential SSH calls | Three sequential `instant_remote_process` calls — takes ~2–4s. Could be parallelised in future. |
+| Per-server SSH | Each collector makes up to 3 `instant_remote_process` calls (ps, stats, optional Traefik) for the *whole* server. Collectors run one-per-server in parallel across queue workers. |
 | Stats on stopped containers | `docker stats` only works on running containers; stopped replicas show `—` for CPU/MEM. |

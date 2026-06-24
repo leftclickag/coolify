@@ -143,6 +143,19 @@ test('set_env requires write ability', function () {
     expect($response->json('result.content.0.text'))->toContain('Missing required permissions');
 });
 
+test('execute_command requires deploy ability (write is insufficient)', function () {
+    $token = $this->user->createToken('write', ['write'])->plainTextToken;
+
+    $response = writeMcpCallTool($token, 'execute_command', [
+        'uuid' => 'does-not-matter',
+        'command' => 'echo hi',
+    ]);
+    $response->assertOk();
+
+    expect($response->json('result.isError'))->toBeTrue();
+    expect($response->json('result.content.0.text'))->toContain('Missing required permissions');
+});
+
 test('create_project requires write ability', function () {
     $token = $this->user->createToken('read-only', ['read'])->plainTextToken;
 

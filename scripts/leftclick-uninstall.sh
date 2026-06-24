@@ -14,7 +14,13 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-read -p "This will permanently delete ALL Coolify data (databases, services, configs, SSH keys, volumes). Type YES to continue: " CONFIRM
+# Read confirmation from the terminal, not stdin — otherwise `curl ... | bash`
+# would feed the piped script into `read` and the prompt could never be answered.
+if [ ! -e /dev/tty ]; then
+    echo "No terminal available for confirmation; refusing to run non-interactively."
+    exit 1
+fi
+read -r -p "This will permanently delete ALL Coolify data (databases, services, configs, SSH keys, volumes). Type YES to continue: " CONFIRM < /dev/tty
 if [ "$CONFIRM" != "YES" ]; then
     echo "Aborted."
     exit 1

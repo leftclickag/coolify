@@ -18,6 +18,8 @@ class UpdateCoolify
 
     public ?string $currentVersion = null;
 
+    private ?bool $isLeftclickBuild = null;
+
     public function handle($manual_update = false)
     {
         if (isDev()) {
@@ -150,6 +152,10 @@ class UpdateCoolify
 
     private function isLeftclickBuild(): bool
     {
+        if ($this->isLeftclickBuild !== null) {
+            return $this->isLeftclickBuild;
+        }
+
         if ($this->server === null) {
             return false;
         }
@@ -160,7 +166,7 @@ class UpdateCoolify
             false
         );
 
-        return trim((string) $result) === '1';
+        return $this->isLeftclickBuild = (trim((string) $result) === '1');
     }
 
     private function updateLeftclick(): void

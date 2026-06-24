@@ -10,6 +10,13 @@ class ScaleServiceApplication
     use AsAction;
 
     /**
+     * Absolute upper bound for replicas, matching the UI input and the Livewire
+     * validation rule (1..50). Autoscaling enforces its own configured min/max
+     * separately in CheckServiceAutoscalingJob.
+     */
+    public const MAX_REPLICAS = 50;
+
+    /**
      * Scale a service application to the given replica count.
      *
      * Re-parses and re-saves the compose file so the deploy.replicas key is up to
@@ -22,10 +29,11 @@ class ScaleServiceApplication
      */
     public function handle(ServiceApplication $serviceApplication, int $replicas): void
     {
-        $replicas = max(
-            max(1, (int) ($serviceApplication->autoscale_min_replicas ?? 1)),
-            min(max(1, (int) ($serviceApplication->autoscale_max_replicas ?? 50)), $replicas)
-        );
+        // Only clamp to the absolute supported range. The manual "Apply Now" path must
+        // not be limited by autoscale_max_replicas (default 5) — that bound is for
+        // autoscaling only, which already keeps its decisions within min/max in
+        // CheckServiceAutoscalingJob before calling this action.
+        $replicas = self::clampReplicas($replicas);
 
         $service = $serviceApplication->service;
         $workdir = $service->workdir();
@@ -67,5 +75,13 @@ class ScaleServiceApplication
         }
 
         instant_remote_process($commands, $server);
+    }
+
+    /**
+     * Clamp a requested replica count to the absolute supported range [1, MAX_REPLICAS].
+     */
+    public static function clampReplicas(int $replicas): int
+    {
+        return max(1, min(self::MAX_REPLICAS, $replicas));
     }
 }

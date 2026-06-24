@@ -44,6 +44,12 @@ class ServiceApplication extends BaseModel
         return [
             'autoscale_enabled' => 'boolean',
             'autoscale_last_scaled_at' => 'datetime',
+            'replicas' => 'integer',
+            'autoscale_min_replicas' => 'integer',
+            'autoscale_max_replicas' => 'integer',
+            'autoscale_cpu_threshold' => 'integer',
+            'autoscale_memory_threshold' => 'integer',
+            'autoscale_cooldown_seconds' => 'integer',
         ];
     }
 

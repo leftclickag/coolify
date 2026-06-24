@@ -6,7 +6,6 @@ use App\Mcp\Concerns\BuildsResponse;
 use App\Mcp\Concerns\ResolvesTeam;
 use App\Models\Application;
 use App\Models\EnvironmentVariable;
-use App\Models\Server;
 use App\Models\Service;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;

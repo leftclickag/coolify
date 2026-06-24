@@ -92,16 +92,17 @@ class GetLogs extends Tool
         $allLogs = [];
         $server = $service->destination->server;
 
-        foreach ($service->applications()->get() as $serviceApp) {
-            $containers = getCurrentApplicationContainerStatus($server, $serviceApp->id);
-            foreach ($containers as $container) {
-                $containerName = data_get($container, 'Names', data_get($container, 'ID'));
-                $logs = getContainerLogs($server, data_get($container, 'ID', $containerName), $lines);
-                $allLogs[] = [
-                    'container' => $containerName,
-                    'logs' => $logs,
-                ];
-            }
+        // Service stack containers (apps + databases, including scaled replicas) all
+        // carry the coolify.serviceId label; the per-application applicationId label
+        // does not exist on them, so we query by the service id directly.
+        $containers = getCurrentServiceContainerStatus($server, $service->id);
+        foreach ($containers as $container) {
+            $containerName = data_get($container, 'Names', data_get($container, 'ID'));
+            $logs = getContainerLogs($server, data_get($container, 'ID', $containerName), $lines);
+            $allLogs[] = [
+                'container' => $containerName,
+                'logs' => $logs,
+            ];
         }
 
         return $this->respond([

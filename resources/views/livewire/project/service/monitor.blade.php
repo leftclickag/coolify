@@ -1,4 +1,4 @@
-<div class="flex flex-col" wire:poll.3000ms="checkForFreshData">
+<div class="flex flex-col" wire:poll.8000ms="checkForFreshData">
 
     {{-- Header --}}
     <div class="flex items-center gap-3 pb-4">
@@ -12,7 +12,7 @@
             </span>
         @endif
         <div class="ml-auto flex items-center gap-3">
-            <span class="text-xs dark:text-neutral-500">Auto-refreshing every 3s</span>
+            <span class="text-xs dark:text-neutral-500">Auto-refreshing every 8s</span>
             <x-forms.button wire:click="requestRefresh" wire:loading.attr="disabled" wire:target="requestRefresh">
                 Refresh Now
             </x-forms.button>

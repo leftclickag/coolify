@@ -23,7 +23,7 @@ Docker Compose forbids static `container_name` when there are multiple replicas.
 
 `ScaleServiceApplication` (`app/Actions/Service/ScaleServiceApplication.php`):
 
-1. Clamps `replicas` between `autoscale_min_replicas` and `autoscale_max_replicas`
+1. Clamps `replicas` to the absolute supported range `[1, ScaleServiceApplication::MAX_REPLICAS]` (50). Manual "Apply Now" scaling is **not** bound by `autoscale_min/max_replicas` — those bounds apply to autoscaling decisions only (enforced in `ServiceAutoscaler`).
 2. Updates `replicas` and `autoscale_last_scaled_at` in the DB
 3. Calls `$service->parse()` — regenerates `docker_compose` with `deploy.replicas: N` (or back to `container_name` if going to 1)
 4. Calls `$service->saveComposeConfigs()` — writes new compose to the server
@@ -40,26 +40,32 @@ docker compose --project-directory {workdir} \
 
 `--force-recreate` on the named service ensures the container is renamed correctly when scaling from 1 → N for the first time (the initial container has the old static name). Other services in the stack are never touched.
 
-### 3. Autoscaling job
+### 3. Autoscaling job (fan-out)
 
-`CheckServiceAutoscalingJob` runs every minute via Laravel Scheduler.
+`CheckServiceAutoscalingJob` runs every minute and is only a **dispatcher** (`ShouldBeUnique`):
+it resolves the distinct reachable servers that host an autoscale-enabled app or a recently
+viewed Monitor, and dispatches one `CollectServerContainerStatsJob` per server. Servers are
+resolved in PHP (not `whereHas`) because `Service::destination` is a morphTo.
 
-For each `ServiceApplication` with `autoscale_enabled = true` on a reachable server:
+`CollectServerContainerStatsJob` (per server, `ShouldBeUnique` on server id) does the work and
+is **shared with the Service Monitor** — one collection feeds both:
 
-1. **Container discovery** — uses Docker labels to find all replicas:
-   ```bash
-   docker ps \
-     --filter label=com.docker.compose.service={name} \
-     --filter label=com.docker.compose.project={uuid} -q
-   ```
-2. **Stats collection** — `docker stats --no-stream --format '{{json .}}'` on those container IDs
-3. **Rolling-window smoothing** — the current snapshot (avg CPU/MEM across replicas) is pushed
-   into a cache-backed rolling window (`autoscale:samples:{id}`, last `SAMPLE_WINDOW = 5` samples).
-   The scaling decision uses the **moving average**, so a single transient spike does not trigger
-   scaling. Samples are recorded even during cooldown so the average stays continuous.
-4. **Cooldown check** — if `now() - autoscale_last_scaled_at < autoscale_cooldown_seconds`, skip
-   (after recording the sample).
-5. **Decision logic** (uses smoothed averages):
+1. **Per-server stats** — one `docker ps -a` + one `docker stats --no-stream` for the WHOLE
+   server (not per app), parsed and grouped by `com.docker.compose.project` (service uuid).
+2. **Autoscaling** — for each autoscale-enabled app on the server, averages CPU/MEM across that
+   Compose service's running replicas and calls `ServiceAutoscaler::evaluate()`.
+
+`ServiceAutoscaler` (`app/Services/ServiceAutoscaler.php`) owns the decision:
+
+1. **Self-throttle** — at most one evaluation per app per ~55s (`autoscale:evaluated:{id}`), so the
+   sampling cadence is independent of how often the collector runs (a watched service's collector
+   fires every monitor poll).
+2. **Rolling-window smoothing** — the snapshot is pushed into a cache-backed window
+   (`autoscale:samples:{id}`, last `SAMPLE_WINDOW = 5` samples). Decisions use the moving average,
+   so a transient spike does not trigger scaling. Samples are recorded even during cooldown.
+3. **Cooldown check** — if `|now() - autoscale_last_scaled_at| < autoscale_cooldown_seconds`, skip
+   (the `abs()` matters: Carbon 3 `diffInSeconds` is signed).
+4. **Decision** (`decide()`, pure & unit-tested):
    - Scale **up** by 1 if `avgCpu >= cpuThreshold` OR `avgMem >= memThreshold`
    - Scale **down** by 1 if avg is below **50 %** of both thresholds (hysteresis) AND the window
      is full (`>= SAMPLE_WINDOW` samples) — avoids over-eager shrink right after startup
@@ -139,8 +145,10 @@ replica's logs are individually selectable.
 
 | File | Purpose |
 |---|---|
-| `app/Actions/Service/ScaleServiceApplication.php` | Core scale action |
-| `app/Jobs/CheckServiceAutoscalingJob.php` | Scheduled autoscaling check |
+| `app/Actions/Service/ScaleServiceApplication.php` | Core scale action (clamps to `[1, MAX_REPLICAS]`) |
+| `app/Jobs/CheckServiceAutoscalingJob.php` | Scheduled dispatcher — fans out one collector per server |
+| `app/Jobs/CollectServerContainerStatsJob.php` | Per-server stats collection; shared by autoscaler + Monitor |
+| `app/Services/ServiceAutoscaler.php` | Throttle, rolling window, cooldown, `decide()` (unit-tested) |
 | `app/Livewire/Project/Service/Autoscaling.php` | UI component |
 | `resources/views/livewire/project/service/autoscaling.blade.php` | Blade view |
 | `bootstrap/helpers/parsers.php` → `serviceParser()` | Injects `deploy.replicas`, removes `container_name`, converts host ports to `expose` |
@@ -153,8 +161,9 @@ replica's logs are individually selectable.
 
 | File | Covers |
 |---|---|
-| `tests/Unit/ServiceAutoscalingTest.php` | Scale up/down decision logic, min/max bounds, hysteresis |
+| `tests/Unit/ServiceAutoscalingTest.php` | `ServiceAutoscaler` decision logic, cooldown, sampling throttle |
+| `tests/Unit/ServiceScalingClampTest.php` | `ScaleServiceApplication::clampReplicas()` bounds |
 | `tests/Unit/ServiceScalingPortConversionTest.php` | `extractContainerPortForExpose()` port parsing |
 | `tests/Unit/ContainerStatusMergeTest.php` | `mergeStatusStrings()` replica status merging |
 
-Run: `docker exec coolify ./vendor/bin/pest tests/Unit/ServiceAutoscalingTest.php tests/Unit/ServiceScalingPortConversionTest.php tests/Unit/ContainerStatusMergeTest.php`
+Run: `docker exec coolify ./vendor/bin/pest tests/Unit/ServiceAutoscalingTest.php tests/Unit/ServiceScalingClampTest.php tests/Unit/ServiceScalingPortConversionTest.php tests/Unit/ContainerStatusMergeTest.php`

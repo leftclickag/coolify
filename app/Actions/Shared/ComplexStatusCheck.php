@@ -76,7 +76,10 @@ class ComplexStatusCheck
             return;
         }
 
-        // Group running containers by their compose service name.
+        // Merge replicas that share a compose service name so a failed replica is not
+        // masked by a healthy one — consistent with how container statuses are aggregated
+        // elsewhere (GetContainersStatus / PushServerUpdateJob).
+        $aggregator = new ContainerStatusAggregator;
         $statusByService = [];
         foreach ($containers as $container) {
             $labels = data_get($container, 'Config.Labels', []);
@@ -88,10 +91,10 @@ class ComplexStatusCheck
             $health = data_get($container, 'State.Health.Status');
             $containerStatus = $health ? "{$state}:{$health}" : $state;
 
-            // Prefer non-exited status when multiple containers share a service name (replicas).
-            if (! isset($statusByService[$serviceName]) || $state === 'running') {
-                $statusByService[$serviceName] = $containerStatus;
-            }
+            $statusByService[$serviceName] = $aggregator->mergeStatusStrings(
+                $statusByService[$serviceName] ?? null,
+                $containerStatus
+            );
         }
 
         foreach ($dockerServices as $name => $dockerService) {

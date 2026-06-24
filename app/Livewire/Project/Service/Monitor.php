@@ -2,7 +2,7 @@
 
 namespace App\Livewire\Project\Service;
 
-use App\Jobs\PollServiceContainerStatsJob;
+use App\Jobs\CollectServerContainerStatsJob;
 use App\Models\Service;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
@@ -45,7 +45,7 @@ class Monitor extends Component
      */
     private function loadFromCache(): void
     {
-        $cached = Cache::get(PollServiceContainerStatsJob::cacheKey($this->service->uuid));
+        $cached = Cache::get(CollectServerContainerStatsJob::cacheKey($this->service->uuid));
 
         if ($cached) {
             $this->containers = $cached['containers'] ?? [];
@@ -60,13 +60,22 @@ class Monitor extends Component
      */
     public function requestRefresh(): void
     {
-        PollServiceContainerStatsJob::dispatch($this->service->id);
-        Cache::put(self::pendingKey($this->service->uuid), now()->toIso8601String(), now()->addSeconds(30));
+        $server = $this->service->destination?->server;
+        if (! $server) {
+            return;
+        }
+
+        // One per-server collector serves every service on the host; concurrent dispatches
+        // (this page, other tabs, the scheduler) coalesce via the job's unique lock.
+        CollectServerContainerStatsJob::dispatch($server->id);
+        // Short TTL so the "Fetching…" spinner self-clears even if the run never reports back;
+        // the collector also forgets this key as soon as it writes fresh data.
+        Cache::put(self::pendingKey($this->service->uuid), now()->toIso8601String(), now()->addSeconds(15));
     }
 
     private static function pendingKey(string $uuid): string
     {
-        return PollServiceContainerStatsJob::CACHE_KEY_PREFIX.'pending:'.$uuid;
+        return CollectServerContainerStatsJob::pendingKey($uuid);
     }
 
     /**

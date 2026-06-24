@@ -55,7 +55,16 @@ class GetInfrastructureOverview extends Tool
         foreach ($projects as $project) {
             $apps = $project->applications()->count();
             $services = $project->services()->count();
-            $databases = $project->databases()->count();
+            // Project::databases() hydrates all 8 standalone-DB types via get()->merge();
+            // count each relation directly instead so no models are fetched just to be counted.
+            $databases = $project->postgresqls()->count()
+                + $project->redis()->count()
+                + $project->mongodbs()->count()
+                + $project->mysqls()->count()
+                + $project->mariadbs()->count()
+                + $project->keydbs()->count()
+                + $project->dragonflies()->count()
+                + $project->clickhouses()->count();
 
             $appCount += $apps;
             $serviceCount += $services;

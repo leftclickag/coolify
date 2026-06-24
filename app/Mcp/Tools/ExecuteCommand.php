@@ -21,7 +21,9 @@ class ExecuteCommand extends Tool
 
     public function handle(Request $request): Response
     {
-        if ($error = $this->ensureAbility($request, 'write')) {
+        // Running arbitrary shell inside a container is the most powerful action in the
+        // tool set — require the highest task-scoped ability rather than plain 'write'.
+        if ($error = $this->ensureAbility($request, 'deploy')) {
             return $error;
         }
 

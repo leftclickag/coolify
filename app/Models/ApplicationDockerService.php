@@ -32,7 +32,7 @@ class ApplicationDockerService extends BaseModel
         });
     }
 
-    public function casts(): array
+    protected function casts(): array
     {
         return [
             'exclude_from_status' => 'boolean',

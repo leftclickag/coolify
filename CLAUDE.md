@@ -70,7 +70,7 @@ Built-in Model Context Protocol server at `app/Mcp/` — exposes Coolify as a to
 **Token abilities required:**
 - `read` — all list/get tools
 - `write` — create/update/delete tools
-- `deploy` — `control`, `deploy`, `cancel_deployment`
+- `deploy` — `control`, `deploy`, `cancel_deployment`, `execute_command`
 
 **Current tools (33 total):**
 
