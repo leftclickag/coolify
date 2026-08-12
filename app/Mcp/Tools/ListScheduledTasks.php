@@ -3,75 +3,92 @@
 namespace App\Mcp\Tools;
 
 use App\Mcp\Concerns\BuildsResponse;
+use App\Mcp\Concerns\ResolvesResource;
 use App\Mcp\Concerns\ResolvesTeam;
-use App\Models\Application;
-use App\Models\Service;
+use App\Models\ScheduledTask;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Attributes\Description;
-use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tool;
 
-#[Name('list_scheduled_tasks')]
-#[Description('List scheduled tasks (cron jobs) for an application or service.')]
 class ListScheduledTasks extends Tool
 {
+    protected string $name = 'list_scheduled_tasks';
+
+    protected string $description = 'List scheduled tasks for an application or service owned by the authenticated team. Task command bodies require read:sensitive; without it only metadata is returned.';
+
     use BuildsResponse;
+    use ResolvesResource;
     use ResolvesTeam;
 
     public function handle(Request $request): Response
     {
-        if ($error = $this->ensureAbility($request, 'read')) {
+        if ($error = $this->ensureAbility($request, 'read', $this->name)) {
             return $error;
         }
 
         $teamId = $this->resolveTeamId($request);
         if (is_null($teamId)) {
-            return Response::error('Invalid token.');
+            return $this->mcpError($request, 'Invalid token.');
         }
 
         $resourceType = $request->get('resource');
         $uuid = $request->get('uuid');
 
-        if (! in_array($resourceType, ['application', 'service'], true)) {
-            return Response::error('resource must be one of: application, service.');
+        if (! is_string($resourceType) || ! $this->isValidResourceType($resourceType, $this->scheduledTaskResourceTypes)) {
+            return $this->mcpError($request, 'resource must be one of: application, service.');
         }
-
         if (! is_string($uuid) || $uuid === '') {
-            return Response::error('uuid argument is required.');
+            return $this->mcpError($request, 'uuid argument is required.');
         }
 
-        $resource = $resourceType === 'application'
-            ? Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $uuid)->first()
-            : Service::whereRelation('environment.project.team', 'id', $teamId)->where('uuid', $uuid)->first();
-
+        $resource = $this->resolveTeamResource($teamId, $resourceType, $uuid);
         if (! $resource) {
-            return Response::error(ucfirst($resourceType)." [{$uuid}] not found.");
+            return $this->mcpError($request, ucfirst($resourceType)." [{$uuid}] not found.", ['resource_uuid' => $uuid]);
         }
 
-        $tasks = $resource->scheduled_tasks
-            ->map(fn ($task) => [
+        // Optional: command bodies are sensitive; omit unless token has read:sensitive/root.
+        // Do not call ensureAbility() here — lack of sensitive ability must not fail the tool.
+        $token = $request->user()?->currentAccessToken();
+        $includeCommand = $token !== null && ($token->can('root') || $token->can('read:sensitive'));
+
+        $query = ScheduledTask::ownedByCurrentTeamAPI($teamId);
+        if ($resourceType === 'application') {
+            $query->where('application_id', $resource->id);
+        } else {
+            $query->where('service_id', $resource->id);
+        }
+
+        $tasks = $query->get()->map(function ($task) use ($includeCommand) {
+            $row = [
                 'uuid' => $task->uuid,
                 'name' => $task->name,
-                'command' => $task->command,
+                'enabled' => $task->enabled,
                 'frequency' => $task->frequency,
                 'container' => $task->container,
-                'enabled' => (bool) $task->enabled,
                 'timeout' => $task->timeout,
-                'created_at' => $task->created_at?->toISOString(),
-            ])
-            ->values()
-            ->all();
+                'command_included' => $includeCommand,
+            ];
+            if ($includeCommand) {
+                $row['command'] = $task->command;
+            }
 
-        return $this->respond($tasks);
+            return $this->scrubSensitive($row);
+        })->values()->all();
+
+        return $this->mcpSuccess($request, $this->respond([
+            'resource' => $resourceType,
+            'uuid' => $uuid,
+            'tasks' => $tasks,
+            'command_included' => $includeCommand,
+        ]), ['resource_uuid' => $uuid]);
     }
 
     public function schema(JsonSchema $schema): array
     {
         return [
-            'resource' => $schema->string()->description('Resource type: application or service.')->required(),
-            'uuid' => $schema->string()->description('UUID of the resource.')->required(),
+            'resource' => $schema->string()->description('application | service')->required(),
+            'uuid' => $schema->string()->description('Resource UUID.')->required(),
         ];
     }
 }

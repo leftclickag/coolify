@@ -317,6 +317,10 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
             }
         }
 
+        if (! $this->isCompleteSnapshot()) {
+            return;
+        }
+
         $this->updateProxyStatus();
 
         $this->updateNotFoundApplicationStatus();
@@ -333,6 +337,11 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
         $this->aggregateServiceContainerStatuses();
 
         $this->checkLogDrainContainer();
+    }
+
+    private function isCompleteSnapshot(): bool
+    {
+        return data_get($this->data, 'snapshot.complete', true) !== false;
     }
 
     private function loadApplications(): Collection
@@ -705,6 +714,9 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
         if ($database->status !== $containerStatus) {
             $database->status = $containerStatus;
             $database->save();
+        }
+        if (! $this->isCompleteSnapshot()) {
+            return;
         }
         if ($this->isRunning($containerStatus) && $tcpProxy) {
             $tcpProxyContainerFound = $this->containers->filter(function ($value, $key) use ($databaseUuid) {
