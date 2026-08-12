@@ -8,6 +8,10 @@ tables, modals, toasts, terminals, and metrics.
 Use this file as the source of truth for frontend design work. Update it in the
 same change whenever a new shared visual pattern or component is introduced.
 
+Agent-facing extraction: activate the `coolify-design` skill
+(`.agents/skills/coolify-design/`) for UI implementation work. Keep this file
+authoritative when the skill and this document disagree.
+
 Onboarding validation and live server validation checkpoints share
 `<x-checkpoint-item>` (idle / pending / running / success / error) inside a
 compact divided list, not legacy green check SVGs or fixed-width status rows.
