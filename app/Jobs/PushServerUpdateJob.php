@@ -188,7 +188,7 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
             Cache::forget($storageCacheKey);
         }
 
-        if ($this->containers->isEmpty()) {
+        if ($this->containers->isEmpty() && ! $this->isCompleteSnapshot()) {
             return;
         }
 
@@ -631,12 +631,6 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
             return;
         }
 
-        // Only protection: Verify we received any container data at all
-        // If containers collection is completely empty, Sentinel might have failed
-        if ($this->containers->isEmpty()) {
-            return;
-        }
-
         // Batch update: mark all not-found applications as exited (excluding already exited ones)
         Application::whereIn('id', $notFoundApplicationIds)
             ->where('status', 'not like', 'exited%')
@@ -647,12 +641,6 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
     {
         $notFoundApplicationPreviewsIds = $this->allApplicationPreviewsIds->diff($this->foundApplicationPreviewsIds);
         if ($notFoundApplicationPreviewsIds->isEmpty()) {
-            return;
-        }
-
-        // Only protection: Verify we received any container data at all
-        // If containers collection is completely empty, Sentinel might have failed
-        if ($this->containers->isEmpty()) {
             return;
         }
 
@@ -741,12 +729,6 @@ class PushServerUpdateJob implements ShouldBeEncrypted, ShouldQueue, Silenced
     {
         $notFoundDatabaseUuids = $this->allDatabaseUuids->diff($this->foundDatabaseUuids);
         if ($notFoundDatabaseUuids->isEmpty()) {
-            return;
-        }
-
-        // Only protection: Verify we received any container data at all
-        // If containers collection is completely empty, Sentinel might have failed
-        if ($this->containers->isEmpty()) {
             return;
         }
 

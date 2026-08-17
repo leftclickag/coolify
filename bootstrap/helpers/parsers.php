@@ -359,6 +359,19 @@ function parseDockerVolumeString(string $volumeString): array
     ];
 }
 
+function addTraefikDockerNetworkLabel(Collection $labels, string $network): Collection
+{
+    $hasUserDefinedNetwork = $labels->contains(
+        fn ($label): bool => is_string($label) && str($label)->before('=')->is('traefik.docker.network')
+    );
+
+    if (! $hasUserDefinedNetwork) {
+        $labels->push("traefik.docker.network={$network}");
+    }
+
+    return $labels;
+}
+
 function applicationParser(Application $resource, int $pull_request_id = 0, ?int $preview_id = null, ?string $commit = null): Collection
 {
     $uuid = data_get($resource, 'uuid');
@@ -1347,6 +1360,9 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
             $redirectDirection = in_array($composeRedirect, ['www', 'non-www', 'both'], true)
                 ? $composeRedirect
                 : 'both';
+            if (! $use_network_mode && (! $shouldGenerateLabelsExactly || $server->proxyType() === ProxyTypes::TRAEFIK->value)) {
+                $serviceLabels = addTraefikDockerNetworkLabel($serviceLabels, $baseNetwork->first());
+            }
             if ($shouldGenerateLabelsExactly) {
                 switch ($server->proxyType()) {
                     case ProxyTypes::TRAEFIK->value:
@@ -2669,6 +2685,9 @@ function serviceParser(Service $resource): Collection
             $redirectDirection = in_array(data_get($originalResource, 'redirect'), ['www', 'non-www', 'both'], true)
                 ? data_get($originalResource, 'redirect')
                 : 'both';
+            if (! $use_network_mode && (! $shouldGenerateLabelsExactly || $server->proxyType() === ProxyTypes::TRAEFIK->value)) {
+                $serviceLabels = addTraefikDockerNetworkLabel($serviceLabels, $baseNetwork->first());
+            }
             if ($shouldGenerateLabelsExactly) {
                 switch ($server->proxyType()) {
                     case ProxyTypes::TRAEFIK->value:
